@@ -1,0 +1,44 @@
+[package]
+name = "ioc-checker-probe"
+version = "0.2.0"
+authors = ["LIFARS"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+opt-level = 'z'  # Optimize for size. Comment it to optimize for speed
+lto = true
+codegen-units = 1 # comment for faster build time, however may result in larger executable
+panic = 'abort'
+
+[dependencies]
+
+log = "0.4"
+simplelog = "0.7.4"
+serde = { version = "1.0.44", features = ["derive"]} # JSON
+serde_json = "1.0.44"
+#ring = "0.16.9" # Crypto
+md-5 = "0.8.0"
+sha-1 = "0.8.2"
+sha2 = "0.8.1"
+walkdir = "2" # Directory walk in std lib does not yet have stable API
+regex = "1"
+config = "0.9"
+chrono = { version = "0.4", features = ["serde"] }
+#clap = "2.33.0"
+#priority-queue = "0.7.0"
+hex = "0.4.0"
+#reqwest = { version = "0.10", features = ["blocking", "json"] }
+#ureq = { version = "0.11.3", features = ["json"] }
+minreq = { version = "*", features = ["https", "json-using-serde", "punycode"] }
+base64 = "0.11.0"
+
+
+[target.'cfg(windows)'.dependencies]
+#winapi = { version = "0.3", features = ["winuser", "std"] }
+winapi = { version = "0.2" }
+widestring = "0.4.0"
+kernel32-sys = "0.2.2"
+
+# data-encoding = "2.1.2"
