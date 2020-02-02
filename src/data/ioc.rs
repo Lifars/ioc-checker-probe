@@ -49,6 +49,8 @@ impl PartialEq for Hashed{
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistryInfo {
+    #[serde(default = "SearchType::default")]
+    pub search: SearchType,
     pub key: String,
     pub value_name: String,
     pub value: Option<String>,
@@ -57,6 +59,8 @@ pub struct RegistryInfo {
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileInfo {
+    #[serde(default = "SearchType::default")]
+    pub search: SearchType,
     pub name: String,
     pub hash: Option<Hashed>,
 }
@@ -147,8 +151,6 @@ pub type IocEntryId = u64;
 pub struct IocEntry {
     #[serde(default = "EvaluationPolicy::default")]
     pub eval_policy: EvaluationPolicy,
-    #[serde(default = "SearchType::default")]
-    pub search_type: SearchType,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default = "EvaluationPolicy::default")]
@@ -160,15 +162,15 @@ pub struct IocEntry {
     #[serde(default)]
     pub file_check: Option<FileInfo>,
     #[serde(default)]
-    pub mutex_check: bool,
+    pub mutex_check: Option<MutexInfo>,
     #[serde(default)]
-    pub process_check: bool,
+    pub process_check: Option<ProcessInfo>,
     #[serde(default)]
-    pub dns_check: bool,
+    pub dns_check: Option<DnsInfo>,
     #[serde(default)]
-    pub conns_check: bool,
+    pub conns_check: Option<ConnectionsInfo>,
     #[serde(default)]
-    pub certs_check: bool
+    pub certs_check: Option<CertsInfo>
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash)]
@@ -196,6 +198,60 @@ pub struct IocSearchResult {
     pub data: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsInfo {
+    pub data: Vec<String>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CertSearchType {
+    Domain,
+    Issuer
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CertsInfo {
+    pub search: CertSearchType,
+    pub data: Vec<String>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MutexInfo {
+    pub data: Vec<String>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ConnSearchType {
+    Ip,
+    Exact,
+    Regex
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionsInfo {
+    pub search: ConnSearchType,
+    pub data: Vec<String>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessInfo {
+    #[serde(default = "SearchType::default")]
+    pub search: SearchType,
+    #[serde(default)]
+    pub hash: Option<Hashed>,
+    #[serde(default)]
+    pub data: Option<Vec<String>>
+}
+
+
+
 //#[cfg(test)]
 //mod ioc_test {
 //    use super::*;
@@ -206,7 +262,7 @@ pub struct IocSearchResult {
 //            id: 1,
 //            priority: Some(Priority::OneChildren),
 //            logical_operator: LogicalOperator::And,
-//            search_type: SearchType::Exact,
+//            search: SearchType::Exact,
 //            data: "Something, something, something dark side".to_string(),
 //            name: "DarthVader".to_string(),
 //            children: Some(vec![
@@ -214,7 +270,7 @@ pub struct IocSearchResult {
 //                    id: 2,
 //                    priority: Some(Priority::Normal),
 //                    logical_operator: LogicalOperator::And,
-//                    search_type: SearchType::Exact,
+//                    search: SearchType::Exact,
 //                    data: "I am his father".to_string(),
 //                    name: "LukeSkywalker".to_string(),
 //                    children: None,
@@ -227,7 +283,7 @@ pub struct IocSearchResult {
 //                    found: true,
 //                    priority: THRESHOLD_PRIORITY - 5,
 //                    logical_operator: LogicalOperator::And,
-//                    search_type: SearchType::Exact,
+//                    search: SearchType::Exact,
 //                    data: "I am also her father".to_string(),
 //                    name: "LeiaOrgana".to_string(),
 //                    children: None,

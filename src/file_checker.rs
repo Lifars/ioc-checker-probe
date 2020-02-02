@@ -10,7 +10,7 @@ use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
 
 //#[derive(Clone)]
 pub struct FileParameters {
-    pub ioc_id: IocEntryId,
+    pub ioc_id: IocId,
     pub ioc_entry_id: IocEntryId,
     pub search_type: SearchType,
     pub file_path_or_name: String,
@@ -214,7 +214,7 @@ fn all_drives() -> Vec<PathBuf> {
 }
 
 #[cfg(not(windows))]
-unsafe fn all_drives() -> Vec<String> {
+fn all_drives() -> Vec<PathBuf> {
     vec![]
 }
 

@@ -35,12 +35,6 @@ mod arg_parser;
 mod ioc_service;
 mod ioc_evaluator;
 
-#[cfg(not(windows))]
-fn print_message(msg: &str) -> Result<(), Error> {
-    println!("{}", msg);
-    Ok(())
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger();
     let program_properties = Properties::new();
@@ -62,17 +56,18 @@ fn setup_logger() {
 }
 
 fn walk_iocs(
+    root_ioc_entries: &mut HashMap<IocId, IocEntryId>,
     iocs: &Vec<Ioc>,
-    ioc_entries_root_ids: &mut HashMap<IocEntryId, IocId>,
     ioc_entries: &mut HashMap<IocEntryId, IocEntryItem>,
     file_parameters: &mut Vec<FileParameters>,
 ) {
     let mut id_gen: u64 = 1;
     for ioc in iocs {
+        id_gen = id_gen + 1;
+        root_ioc_entries.insert(ioc.id.clone(), id_gen.clone());
         walk_ioc_entries(
             &ioc.definition,
             ioc.id,
-            ioc_entries_root_ids,
             ioc_entries,
             file_parameters,
             &mut id_gen
@@ -80,19 +75,23 @@ fn walk_iocs(
     }
 }
 
-// Basicaly DFS
+// Basicaly BFS
 fn walk_ioc_entries(
     ioc_entry: &IocEntry,
     ioc_root_id: IocId,
-    ioc_entries_root_ids: &mut HashMap<IocEntryId, IocId>,
     ioc_entries: &mut HashMap<IocEntryId, IocEntryItem>,
     file_parameters: &mut Vec<FileParameters>,
     id_gen: &mut IocEntryId
 ) {
-    *id_gen = *id_gen + 1;
-
-    ioc_entries_root_ids.insert(*id_gen, ioc_root_id.clone());
     let offspring = ioc_entry.offspring.as_ref();
+    let mut checks_specified = 0u32;
+    if ioc_entry.certs_check.is_some() { checks_specified +=1; }
+    if ioc_entry.file_check.is_some() { checks_specified +=1; }
+    if ioc_entry.registry_check.is_some() { checks_specified +=1; }
+    if ioc_entry.dns_check.is_some() { checks_specified +=1; }
+    if ioc_entry.process_check.is_some() { checks_specified +=1; }
+    if ioc_entry.mutex_check.is_some() { checks_specified +=1; }
+    if ioc_entry.conns_check.is_some() { checks_specified +=1; }
     ioc_entries.insert(*id_gen, IocEntryItem {
         id: *id_gen,
         eval_policy: ioc_entry.eval_policy.clone(),
@@ -104,6 +103,7 @@ fn walk_ioc_entries(
                 *id_gen
             }).collect()),
         },
+        checks_specified
     });
     let file_info = &ioc_entry.file_check;
     if file_info.is_some() {
@@ -111,7 +111,7 @@ fn walk_ioc_entries(
         file_parameters.push(FileParameters {
             ioc_id: ioc_root_id,
             ioc_entry_id: *id_gen,
-            search_type: ioc_entry.search_type.clone(),
+            search_type: file_info.search.clone(),
             file_path_or_name: file_info.name,
             hash: file_info.hash,
         });
@@ -121,10 +121,10 @@ fn walk_ioc_entries(
         None => return,
         Some(children) => {
             for child in children {
+                *id_gen = *id_gen + 1;
                 walk_ioc_entries( // Rekurzia fuj.
                                   child,
                                   ioc_root_id,
-                                  ioc_entries_root_ids,
                                   ioc_entries,
                                   file_parameters,
                                   id_gen
@@ -182,13 +182,13 @@ fn run_checker(program_properties: &Properties) {
 
     // Create checker's params
     ////////////////////////////////////////////////////////////////////////////
-    let mut ioc_entries_root_ids: HashMap<IocEntryId, IocId> = HashMap::new();
+    let mut root_ioc_entries: HashMap<IocId, IocEntryId> = HashMap::new();
     let mut ioc_entries: HashMap<IocEntryId, IocEntryItem> = HashMap::new();
     let mut file_parameters: Vec<FileParameters> = Vec::new();
 
     walk_iocs(
+        &mut root_ioc_entries,
         &iocs,
-        &mut ioc_entries_root_ids,
         &mut ioc_entries,
         &mut file_parameters,
     );
@@ -207,9 +207,9 @@ fn run_checker(program_properties: &Properties) {
     ////////////////////////////////////////////////////////////////////////////
 
     let evaluator = IocEvaluator::new(
-        ioc_entries_root_ids,
+        root_ioc_entries,
         ioc_entries,
-        all_results.to_vec(),
+        &all_results,
     );
     let evaluated_iocs: Vec<IocId> = evaluator.evaluate();
     let all_results_dto: Vec<Result<IocSearchResult, IocSearchError>> = all_results.into_iter()

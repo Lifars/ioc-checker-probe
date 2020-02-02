@@ -3,6 +3,14 @@ use std::collections::HashMap;
 use crate::data::{IocSearchError, IocSearchResult};
 use serde::export::fmt::Display;
 use std::fmt::Formatter;
+use std::convert::TryInto;
+
+//#[derive(Clone)]
+//pub enum CheckResult{
+//    Found,
+//    NotFound,
+//    NotSpecifed
+//}
 
 #[derive(Clone)]
 pub struct IocEntryItem {
@@ -10,6 +18,7 @@ pub struct IocEntryItem {
     pub eval_policy: EvaluationPolicy,
     pub child_eval: EvaluationPolicy,
     pub children: Option<Vec<IocEntryId>>,
+    pub checks_specified: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -34,69 +43,92 @@ impl Display for IocEntrySearchError {
 }
 
 pub struct IocEvaluator {
-    root_ioc_ids: HashMap<IocEntryId, IocId>,
+    root_ioc_ids: HashMap<IocId, IocEntryId>,
     id_ioc_entries: HashMap<IocEntryId, IocEntryItem>,
-    id_founds: HashMap<IocEntryId, Result<IocEntrySearchResult, IocEntrySearchError>>,
+    //    results_reduced: HashMap<IocEntryId, IocEntrySearchResult>,
+    id_successful_founds_count: HashMap<IocEntryId, u32>,
 }
 
 impl IocEvaluator {
-    pub fn new(root_ioc_ids: HashMap<IocEntryId, IocId>,
+    pub fn new(root_ioc_ids: HashMap<IocId, IocEntryId>,
                id_ioc_entries: HashMap<IocEntryId, IocEntryItem>,
-               founds: Vec<Result<IocEntrySearchResult, IocEntrySearchError>>,
+               founds: &[Result<IocEntrySearchResult, IocEntrySearchError>],
     ) -> Self {
-        let id_founds: HashMap<IocEntryId, Result<IocEntrySearchResult, IocEntrySearchError>> =
-            founds.into_iter().map(|result| {
-                match result {
-                    Ok(result_value) => (result_value.ioc_entry_id.clone(), Ok(result_value)),
-                    Err(error) => (error.ioc_entry_id.clone(), Err(error)),
+//        let mut results_reduced: HashMap<IocEntryId, IocEntrySearchResult> = HashMap::new();
+        let mut id_successful_founds_count: HashMap<IocEntryId, u32> = HashMap::new();
+
+        for result in founds {
+            match result {
+                Ok(result_value) => {
+                    let entry_id = &result_value.ioc_entry_id;
+                    let success_count = id_successful_founds_count.get(entry_id);
+                    match success_count {
+                        None => {
+                            id_successful_founds_count.insert(entry_id.clone(), 1);
+                        }
+                        Some(success_count) => {
+                            id_successful_founds_count.insert(entry_id.clone(), success_count + 1);
+                        }
+                    }
                 }
-            }).collect();
+                Err(result_value) => {}
+            }
+        };
 
         IocEvaluator {
             root_ioc_ids,
             id_ioc_entries,
-            id_founds,
+//            id_founds,
+            id_successful_founds_count,
         }
     }
 
     pub fn evaluate(&self) -> Vec<IocId> {
         let evaluate_ioc_entries: Vec<IocEntryId> =
-            self.id_ioc_entries.iter().filter_map(|(_, ioc_entry)| self.evaluate_one(&ioc_entry)).collect();
-        let mut ioc_ids: Vec<IocId> = evaluate_ioc_entries.iter().map(|ioc_entry_id| self.root_ioc_ids.get(ioc_entry_id).unwrap().clone()).collect();
-        ioc_ids.sort();
-        ioc_ids.dedup();
+            self.id_ioc_entries.iter()
+                .filter(|(_, ioc_entry)| self.evaluate_one(&ioc_entry))
+                .map(|(id, _)| id.clone())
+                .collect();
+        let ioc_ids: Vec<IocId> = self.root_ioc_ids.iter()
+            .filter(|(_,ioc_entry_id)| evaluate_ioc_entries.contains(ioc_entry_id))
+            .map(|(ioc_id, _)| ioc_id.clone())
+            .collect();
         ioc_ids
     }
 
     fn evaluate_one(
         &self,
         ioc_entry: &IocEntryItem,
-    ) -> Option<IocEntryId> {
-        let evaluated_self = self.evaluate_simple(ioc_entry);
+    ) -> bool {
+        let evaluated_self = self.evaluate_without_offspring(ioc_entry);
         match evaluated_self {
-            None => match ioc_entry.eval_policy {
-                EvaluationPolicy::All => return None,
-                EvaluationPolicy::One => return self.evaluate_children(&ioc_entry, None)
+            false => match ioc_entry.eval_policy {
+                EvaluationPolicy::All => return false,
+                EvaluationPolicy::One => return self.evaluate_children(&ioc_entry, false)
             }
-            Some(ioc_report) => {
+            true => {
                 match ioc_entry.eval_policy {
-                    EvaluationPolicy::All => return self.evaluate_children(&ioc_entry, evaluated_self),
-                    EvaluationPolicy::One => return evaluated_self
+                    EvaluationPolicy::All => return self.evaluate_children(&ioc_entry, true),
+                    EvaluationPolicy::One => return true
                 }
             }
         }
     }
 
-    fn evaluate_simple(
+    fn evaluate_without_offspring(
         &self,
         ioc_entry: &IocEntryItem,
-    ) -> Option<IocEntryId> {
-        let report = self.id_founds.get(&ioc_entry.id);
-        match report {
-            None => None,
-            Some(report) => match report {
-                Ok(report) => Some(ioc_entry.id),
-                Err(_) => None,
+    ) -> bool {
+        let successful_founds_count = self.id_successful_founds_count.get(&ioc_entry.id).copied();
+        match successful_founds_count {
+            None => false,
+            Some(successful_founds_count) => match ioc_entry.eval_policy {
+                EvaluationPolicy::All => {
+                    successful_founds_count == ioc_entry.checks_specified
+                }
+                EvaluationPolicy::One => {
+                    successful_founds_count > 0u32
+                }
             },
         }
     }
@@ -104,8 +136,8 @@ impl IocEvaluator {
     fn evaluate_children(
         &self,
         parent_ioc_entry: &IocEntryItem,
-        empty_children_evaluation_result: Option<IocEntryId>,
-    ) -> Option<IocEntryId> {
+        empty_children_evaluation_result: bool,
+    ) -> bool {
         let children = parent_ioc_entry.children.as_ref();
         match children {
             None => return empty_children_evaluation_result,
@@ -116,32 +148,46 @@ impl IocEvaluator {
                 match parent_ioc_entry.child_eval {
                     EvaluationPolicy::All => {
                         let found_children = self.evaluate_non_empty_vector(children);
-                        if found_children.len() == children.len() {
-                            return Some(children[0]);
+                        if found_children == children.len() {
+                            return true;
                         }
-                        return None;
+                        return false;
                     }
                     EvaluationPolicy::One => {
                         let found_children = self.evaluate_non_empty_vector(children);
-                        if found_children.len() > 0 {
-                            return Some(found_children[0].clone());
+                        if found_children > 0 {
+                            return true;
                         }
-                        return None;
+                        return false;
                     }
                 }
             }
         }
     }
 
-    fn evaluate_non_empty_vector(&self, ioc_entry_ids: &Vec<IocEntryId>) -> Vec<IocEntryId> {
-        let found = ioc_entry_ids.iter()
-            .filter_map(|ioc_entry_id| {
+    fn evaluate_non_empty_vector(&self, ioc_entry_ids: &Vec<IocEntryId>) -> usize {
+//        let mut found_count = 0;
+//        for ioc_entry_id in ioc_entry_ids {
+//            let ioc_entry = self.id_ioc_entries.get(ioc_entry_id);
+//            match ioc_entry {
+//                None => {}
+//                Some(ioc_entry) => {
+//                    if self.evaluate_one(ioc_entry) {
+//                        found_count += 1;
+//                    }
+//                }
+//            }
+//        }
+        let found_count = ioc_entry_ids.iter()
+            .filter(|ioc_entry_id| {
                 let ioc_entry = self.id_ioc_entries.get(ioc_entry_id);
                 match ioc_entry {
-                    None => None,
-                    Some(ioc_entry) => self.evaluate_one(ioc_entry),
+                    None => false,
+                    Some(ioc_entry) => {
+                        self.evaluate_one(ioc_entry)
+                    }
                 }
-            });
-        found.collect()
+            }).count();
+        found_count
     }
 }
