@@ -201,7 +201,7 @@ pub struct IocSearchResult {
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DnsInfo {
-    pub data: Vec<String>
+    pub name: String
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]

@@ -34,6 +34,7 @@ mod conversion;
 mod arg_parser;
 mod ioc_service;
 mod ioc_evaluator;
+mod dns_checker;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger();
