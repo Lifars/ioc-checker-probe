@@ -16,6 +16,8 @@ use crate::ioc_service::{FileIocService, IocService, HttpIocService, IocServiceE
 use crate::ioc_evaluator::{IocEvaluator, IocEntryItem, IocEntrySearchError, IocEntrySearchResult};
 use std::collections::HashMap;
 use std::hash::Hash;
+use crate::dns_checker::DnsParameters;
+use crate::mutant_checker::MutexParameters;
 //use ureq::json;
 
 
@@ -61,6 +63,8 @@ fn walk_iocs(
     iocs: &Vec<Ioc>,
     ioc_entries: &mut HashMap<IocEntryId, IocEntryItem>,
     file_parameters: &mut Vec<FileParameters>,
+    dns_parameters: &mut Vec<DnsParameters>,
+    mutex_parameters: &mut Vec<MutexParameters>
 ) {
     let mut id_gen: u64 = 1;
     for ioc in iocs {
@@ -69,8 +73,11 @@ fn walk_iocs(
         walk_ioc_entries(
             &ioc.definition,
             ioc.id,
+            root_ioc_entries,
             ioc_entries,
             file_parameters,
+            dns_parameters,
+            mutex_parameters,
             &mut id_gen
         )
     }
@@ -80,59 +87,82 @@ fn walk_iocs(
 fn walk_ioc_entries(
     ioc_entry: &IocEntry,
     ioc_root_id: IocId,
+    root_ioc_entries: &mut HashMap<IocEntryId, IocId>,
     ioc_entries: &mut HashMap<IocEntryId, IocEntryItem>,
     file_parameters: &mut Vec<FileParameters>,
+    dns_parameters: &mut Vec<DnsParameters>,
+    mutex_parameters: &mut Vec<MutexParameters>,
     id_gen: &mut IocEntryId
 ) {
     let offspring = ioc_entry.offspring.as_ref();
     let mut checks_specified = 0u32;
+
     if ioc_entry.certs_check.is_some() { checks_specified +=1; }
-    if ioc_entry.file_check.is_some() { checks_specified +=1; }
+    if ioc_entry.file_check.is_some() {
+        checks_specified +=1;
+        let file_info = ioc_entry.file_check.clone().unwrap();
+        file_parameters.push(FileParameters {
+            ioc_id: ioc_root_id,
+            ioc_entry_id: *id_gen,
+            search_type: file_info.search,
+            file_path_or_name: file_info.name,
+            hash: file_info.hash,
+        });
+    }
     if ioc_entry.registry_check.is_some() { checks_specified +=1; }
-    if ioc_entry.dns_check.is_some() { checks_specified +=1; }
+    if ioc_entry.dns_check.is_some() {
+        checks_specified +=1;
+        let dns_info = ioc_entry.dns_check.clone().unwrap();
+        dns_parameters.push(DnsParameters{
+            ioc_id: ioc_root_id,
+            ioc_entry_id: *id_gen,
+            name: dns_info.name
+        })
+    }
     if ioc_entry.process_check.is_some() { checks_specified +=1; }
-    if ioc_entry.mutex_check.is_some() { checks_specified +=1; }
+    if ioc_entry.mutex_check.is_some() {
+        checks_specified +=1;
+        let mutex_info = ioc_entry.mutex_check.clone().unwrap();
+        mutex_parameters.push(MutexParameters{
+            ioc_entry_id: *id_gen,
+            ioc_id: ioc_root_id,
+            data: mutex_info.data
+        })
+    }
     if ioc_entry.conns_check.is_some() { checks_specified +=1; }
-    ioc_entries.insert(*id_gen, IocEntryItem {
-        id: *id_gen,
+
+    let file_info = &ioc_entry.file_check;
+    if file_info.is_some() {
+
+    }
+
+
+    let entry_item = IocEntryItem {
+        ioc_entry_id: *id_gen,
+        ioc_id: ioc_root_id,
         eval_policy: ioc_entry.eval_policy.clone(),
         child_eval: ioc_entry.child_eval_policy.clone(),
         children: match offspring {
             None => None,
             Some(children) => Some(children.iter().map(|child| {
                 *id_gen = *id_gen + 1;
-                *id_gen
-            }).collect()),
-        },
-        checks_specified
-    });
-    let file_info = &ioc_entry.file_check;
-    if file_info.is_some() {
-        let file_info = file_info.clone().unwrap();
-        file_parameters.push(FileParameters {
-            ioc_id: ioc_root_id,
-            ioc_entry_id: *id_gen,
-            search_type: file_info.search.clone(),
-            file_path_or_name: file_info.name,
-            hash: file_info.hash,
-        });
-    }
-
-    match offspring {
-        None => return,
-        Some(children) => {
-            for child in children {
-                *id_gen = *id_gen + 1;
+                let this_child_id = id_gen.clone();
                 walk_ioc_entries( // Rekurzia fuj.
                                   child,
                                   ioc_root_id,
+                                  root_ioc_entries,
                                   ioc_entries,
                                   file_parameters,
+                                  dns_parameters,
+                                  mutex_parameters,
                                   id_gen
-                )
-            }
-        }
-    }
+                );
+                this_child_id
+            }).collect()),
+        },
+        checks_specified
+    };
+    ioc_entries.insert(entry_item.ioc_entry_id, entry_item);
 }
 
 
@@ -183,26 +213,36 @@ fn run_checker(program_properties: &Properties) {
 
     // Create checker's params
     ////////////////////////////////////////////////////////////////////////////
-    let mut root_ioc_entries: HashMap<IocId, IocEntryId> = HashMap::new();
+    let mut root_ioc_entries: HashMap<IocEntryId, IocId> = HashMap::new();
     let mut ioc_entries: HashMap<IocEntryId, IocEntryItem> = HashMap::new();
     let mut file_parameters: Vec<FileParameters> = Vec::new();
+    let mut dns_parameters: Vec<DnsParameters> = Vec::new();
+    let mut mutex_parameters: Vec<MutexParameters> = Vec::new();
 
     walk_iocs(
         &mut root_ioc_entries,
         &iocs,
         &mut ioc_entries,
         &mut file_parameters,
+        &mut dns_parameters,
+        &mut mutex_parameters
     );
 
     // Run checkers
     ////////////////////////////////////////////////////////////////////////////
 
     let file_check_results = file_checker::check_files(&file_parameters);
+    let dns_check_results = dns_checker::check_dns(&dns_parameters);
+    let mutex_check_results = mutant_checker::check_mutexes(&mutex_parameters);
     // ... todo: other checkers
 
     // Combine results
     ////////////////////////////////////////////////////////////////////////////
-    let all_results: Vec<Result<IocEntrySearchResult, IocEntrySearchError>> = file_check_results;
+    let all_results: Vec<Result<IocEntrySearchResult, IocEntrySearchError>> =
+        file_check_results.into_iter()
+            .chain(dns_check_results.into_iter())
+            .chain(mutex_check_results.into_iter())
+            .collect();
 
     // Create cached ioc defs and search results
     ////////////////////////////////////////////////////////////////////////////

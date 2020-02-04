@@ -221,7 +221,7 @@ pub struct CertsInfo {
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MutexInfo {
-    pub data: Vec<String>
+    pub data: String
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]

@@ -14,7 +14,8 @@ use std::convert::TryInto;
 
 #[derive(Clone)]
 pub struct IocEntryItem {
-    pub id: IocEntryId,
+    pub ioc_entry_id: IocEntryId,
+    pub ioc_id: IocId,
     pub eval_policy: EvaluationPolicy,
     pub child_eval: EvaluationPolicy,
     pub children: Option<Vec<IocEntryId>>,
@@ -61,13 +62,16 @@ impl IocEvaluator {
             match result {
                 Ok(result_value) => {
                     let entry_id = &result_value.ioc_entry_id;
+                    debug!("Ioc entry {} enumerated", entry_id);
                     let success_count = id_successful_founds_count.get(entry_id);
                     match success_count {
                         None => {
+                            debug!("Ioc entry {} checked 1 time so far", entry_id);
                             id_successful_founds_count.insert(entry_id.clone(), 1);
                         }
                         Some(success_count) => {
-                            id_successful_founds_count.insert(entry_id.clone(), success_count + 1);
+                            debug!("Ioc entry {} checked {} times so far", entry_id, *success_count + 1);
+                            id_successful_founds_count.insert(entry_id.clone(), *success_count + 1);
                         }
                     }
                 }
@@ -84,13 +88,18 @@ impl IocEvaluator {
     }
 
     pub fn evaluate(&self) -> Vec<IocId> {
-        let evaluate_ioc_entries: Vec<IocEntryId> =
-            self.id_ioc_entries.iter()
-                .filter(|(_, ioc_entry)| self.evaluate_one(&ioc_entry))
-                .map(|(id, _)| id.clone())
-                .collect();
         let ioc_ids: Vec<IocId> = self.root_ioc_ids.iter()
-            .filter(|(_,ioc_entry_id)| evaluate_ioc_entries.contains(ioc_entry_id))
+            .filter(|(ioc_id, ioc_entry_id)| {
+                debug!("Evaluating IOC {} with root entry id {}", ioc_id, ioc_entry_id);
+                let ioc_entry = self.id_ioc_entries.get(ioc_entry_id);
+                let confirmed = self.evaluate_one(ioc_entry.unwrap());
+                if confirmed {
+                    debug!("IOC {} with root entry id {} confirmed", ioc_id, ioc_entry_id);
+                } else {
+                    debug!("IOC {} with root entry id {} not confirmed", ioc_id, ioc_entry_id);
+                }
+                confirmed
+            })
             .map(|(ioc_id, _)| ioc_id.clone())
             .collect();
         ioc_ids
@@ -100,10 +109,11 @@ impl IocEvaluator {
         &self,
         ioc_entry: &IocEntryItem,
     ) -> bool {
+        debug!("Evaluating IOC entry {}", ioc_entry.ioc_entry_id);
         let evaluated_self = self.evaluate_without_offspring(ioc_entry);
         match evaluated_self {
             false => match ioc_entry.eval_policy {
-                EvaluationPolicy::All => return false,
+                EvaluationPolicy::All => return if ioc_entry.checks_specified == 0 { self.evaluate_children(&ioc_entry, false) } else { false },
                 EvaluationPolicy::One => return self.evaluate_children(&ioc_entry, false)
             }
             true => {
@@ -119,14 +129,16 @@ impl IocEvaluator {
         &self,
         ioc_entry: &IocEntryItem,
     ) -> bool {
-        let successful_founds_count = self.id_successful_founds_count.get(&ioc_entry.id).copied();
+        let successful_founds_count = self.id_successful_founds_count.get(&ioc_entry.ioc_entry_id).copied();
         match successful_founds_count {
             None => false,
             Some(successful_founds_count) => match ioc_entry.eval_policy {
                 EvaluationPolicy::All => {
+                    debug!("Ioc entry {} found {} times out of {}, policy ALL", ioc_entry.ioc_entry_id, successful_founds_count, ioc_entry.checks_specified);
                     successful_founds_count == ioc_entry.checks_specified
                 }
                 EvaluationPolicy::One => {
+                    debug!("Ioc entry {} found {} times out of {}, policy ONE", ioc_entry.ioc_entry_id, successful_founds_count, ioc_entry.checks_specified);
                     successful_founds_count > 0u32
                 }
             },

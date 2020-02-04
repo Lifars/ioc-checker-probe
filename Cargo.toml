@@ -33,12 +33,15 @@ hex = "0.4.0"
 #ureq = { version = "0.11.3", features = ["json"] }
 minreq = { version = "*", features = ["https", "json-using-serde", "punycode"] }
 base64 = "0.11.0"
-
+#num = "0.2.1"
+#num-derive = "0.3.0"
+#num-traits = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-#winapi = { version = "0.3", features = ["winuser", "std"] }
-winapi = { version = "0.2" }
+winapi = { version = "0.3.8", features = ["winuser", "std", "handleapi", "processthreadsapi", "fileapi", "libloaderapi", "memoryapi", "winspool", "securitybaseapi"] }
+#winapi = { version = "0.2" }
 widestring = "0.4.0"
-kernel32-sys = "0.2.2"
+#c_vec = "^1.0.0"
+#kernel32-sys = "0.2.2"
 
 # data-encoding = "2.1.2"

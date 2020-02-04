@@ -35,3 +35,8 @@ pub fn check_dns(search_parameters: &Vec<DnsParameters>) -> Vec<Result<IocEntryS
             data: vec![search_param.name.clone()],
         })).collect()
 }
+
+#[cfg(not(windows))]
+pub fn check_dns(search_parameters: &Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+    vec![]
+}
