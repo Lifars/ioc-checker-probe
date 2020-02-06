@@ -63,15 +63,15 @@ impl IocEvaluator {
                 Ok(result_value) => {
                     let entry_id = &result_value.ioc_entry_id;
                     debug!("Ioc entry {} enumerated", entry_id);
-                    let success_count = id_successful_founds_count.get(entry_id);
+                    let success_count = id_successful_founds_count.get(entry_id).cloned();
                     match success_count {
                         None => {
                             debug!("Ioc entry {} checked 1 time so far", entry_id);
                             id_successful_founds_count.insert(entry_id.clone(), 1);
                         }
                         Some(success_count) => {
-                            debug!("Ioc entry {} checked {} times so far", entry_id, *success_count + 1);
-                            id_successful_founds_count.insert(entry_id.clone(), *success_count + 1);
+                            debug!("Ioc entry {} checked {} times so far", entry_id, success_count + 1);
+                            id_successful_founds_count.insert(entry_id.clone(), success_count + 1);
                         }
                     }
                 }

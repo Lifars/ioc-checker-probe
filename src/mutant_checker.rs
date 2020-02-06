@@ -7,7 +7,6 @@ use std::mem::MaybeUninit;
 use std::ffi::{OsStr, CString};
 use std::iter::once;
 use std::ptr;
-
 #[cfg(windows)]
 use winapi::ctypes::c_void;
 use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
@@ -15,6 +14,8 @@ use core::mem;
 #[cfg(windows)]
 use crate::windows_bindings::PoolType;
 use std::borrow::BorrowMut;
+#[cfg(windows)]
+use crate::priv_esca::{drop_privileges, get_privileges};
 
 #[cfg(windows)]
 pub enum SystemHandleFlags {
@@ -76,9 +77,6 @@ const SYSTEM_PROCESS_INFORMATION: u32 = 5;
 #[cfg(windows)]
 const SYSTEM_HANDLE_INFORMATION: u32 = 16;
 
-//fn nt_success(x: kernel32::) -> bool {
-//    return x >= 0;
-//}
 
 #[cfg(windows)]
 type NtQuerySystemInformation = Option<extern "system" fn(
@@ -124,7 +122,8 @@ pub struct MutexParameters {
 }
 
 #[cfg(windows)]
-pub fn check_mutexes(search_parameters: &Vec<MutexParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+    if search_parameters.is_empty() { return vec![] }
     let mut ioc_results = Vec::<Result<IocEntrySearchResult, IocEntrySearchError>>::new();
     let mut errors = Vec::<String>::new();
     unsafe {
@@ -138,7 +137,7 @@ pub fn check_mutexes(search_parameters: &Vec<MutexParameters>) -> Vec<Result<Ioc
             let err = format!("Cannot load function NtQuerySystemInformation");
             error!("{}", err);
             errors.push(err);
-            return process_results(search_parameters, ioc_results, errors)
+            return process_results(&search_parameters, ioc_results, errors);
         }
         let query_system_information_fn = query_system_information_fn.unwrap();
 
@@ -149,7 +148,7 @@ pub fn check_mutexes(search_parameters: &Vec<MutexParameters>) -> Vec<Result<Ioc
             let err = format!("Cannot load function NtQueryObject");
             error!("{}", err);
             errors.push(err);
-            return process_results(search_parameters, ioc_results, errors)
+            return process_results(&search_parameters, ioc_results, errors);
         }
         let query_object_fn = query_object_fn.unwrap();
 
@@ -160,11 +159,12 @@ pub fn check_mutexes(search_parameters: &Vec<MutexParameters>) -> Vec<Result<Ioc
             let err = format!("Cannot load function NtDuplicateObject");
             error!("{}", err);
             errors.push(err);
-            return process_results(search_parameters, ioc_results, errors)
+            return process_results(&search_parameters, ioc_results, errors);
         }
         let duplicate_object_fn = duplicate_object_fn.unwrap();
 
-        get_privileges();
+        let gp = get_privileges(winapi::um::winnt::SE_DEBUG_NAME);
+        if gp.is_err() { error!("{}", gp.unwrap_err()) }
 
         let mut buffer_length = 1000usize;
 
@@ -336,12 +336,12 @@ pub fn check_mutexes(search_parameters: &Vec<MutexParameters>) -> Vec<Result<Ioc
             0,
             winapi::um::winnt::MEM_RELEASE,
         );
-        drop_privileges();
+        let gp = drop_privileges(winapi::um::winnt::SE_DEBUG_NAME);
+        if gp.is_err() { error!("{}", gp.unwrap_err()) }
     }
-    process_results(search_parameters, ioc_results, errors)
+    process_results(&search_parameters, ioc_results, errors)
 }
 
-#[cfg(windows)]
 fn process_results(search_parameters: &Vec<MutexParameters>, mut ioc_results: Vec<Result<IocEntrySearchResult, IocEntrySearchError>>, errors: Vec<String>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     if !search_parameters.is_empty() {
         errors.into_iter().for_each(|error| ioc_results.push(Err(IocEntrySearchError {
@@ -356,103 +356,7 @@ fn process_results(search_parameters: &Vec<MutexParameters>, mut ioc_results: Ve
 
 
 #[cfg(not(windows))]
-pub fn check_mutexes(search_parameters: &Vec<MutexParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>>  {
+pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     return vec![];
 }
-
-#[cfg(windows)]
-unsafe fn set_privilege(
-    token: winapi::shared::ntdef::HANDLE,
-    privilege: &str,
-    enable_privilege: bool) -> bool {
-    let mut luid = MaybeUninit::<winapi::shared::ntdef::LUID>::uninit();
-    let privilege_c_str: &[i8] = mem::transmute(privilege.as_bytes());
-
-    if winapi::um::winbase::LookupPrivilegeValueA(
-        ptr::null(),
-        privilege_c_str.as_ptr(),
-        luid.as_mut_ptr(),
-    ) == 0 {
-        return false;
-    }
-    let luid = luid.assume_init();
-    let mut tp = winapi::um::winnt::TOKEN_PRIVILEGES {
-        PrivilegeCount: 1,
-        Privileges: [
-            winapi::um::winnt::LUID_AND_ATTRIBUTES {
-                Luid: luid,
-                Attributes: 0,
-            }
-        ],
-    };
-
-    let mut tp_previous = MaybeUninit::<winapi::um::winnt::TOKEN_PRIVILEGES>::uninit();
-    let mut cb_previous = std::mem::size_of::<winapi::um::winnt::TOKEN_PRIVILEGES>() as u32;
-    winapi::um::securitybaseapi::AdjustTokenPrivileges(
-        token,
-        0, // false
-        &mut tp,
-        std::mem::size_of::<winapi::um::winnt::TOKEN_PRIVILEGES>() as u32,
-        tp_previous.as_mut_ptr(),
-        &mut cb_previous,
-    );
-
-    if winapi::um::errhandlingapi::GetLastError() != winapi::shared::winerror::ERROR_SUCCESS {
-        error!("Cannot adjust user privileges in pass 1/2");
-        return false;
-    }
-
-    let mut tp_previous = tp_previous.assume_init();
-    tp_previous.PrivilegeCount = 1;
-    tp_previous.Privileges[0].Luid = luid;
-
-    if enable_privilege {
-        tp_previous.Privileges[0].Attributes |= winapi::um::winnt::SE_PRIVILEGE_ENABLED
-    } else {
-        tp_previous.Privileges[0].Attributes ^=
-            (winapi::um::winnt::SE_PRIVILEGE_ENABLED & tp_previous.Privileges[0].Attributes)
-    }
-
-    winapi::um::securitybaseapi::AdjustTokenPrivileges(
-        token,
-        0, // false
-        &mut tp_previous,
-        cb_previous,
-        ptr::null_mut(),
-        ptr::null_mut(),
-    );
-
-    if winapi::um::errhandlingapi::GetLastError() != winapi::shared::winerror::ERROR_SUCCESS {
-        error!("Cannot adjust user privileges in pass 2/2");
-        return false;
-    }
-    true
-}
-
-#[cfg(windows)]
-unsafe fn get_privileges() -> bool {
-    let mut token = MaybeUninit::<winapi::shared::ntdef::VOID>::uninit();
-    let mut current_process_handle = winapi::um::processthreadsapi::GetCurrentProcess();
-    let opt_r = winapi::um::processthreadsapi::OpenProcessToken(current_process_handle,
-                                                                winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES | winapi::um::winnt::TOKEN_QUERY,
-                                                                &mut token.as_mut_ptr());
-
-    if opt_r == 0 {
-        return true;
-    }
-    let sp_r = set_privilege(token.as_mut_ptr(), "SeDebugPrivilege", true);
-    if !sp_r {
-        let ch_r = winapi::um::handleapi::CloseHandle(token.as_mut_ptr());
-        return true;
-    }
-    winapi::um::handleapi::CloseHandle(token.as_mut_ptr());
-    return false;
-}
-
-#[cfg(windows)]
-unsafe fn drop_privileges() -> bool {
-    return get_privileges();
-}
-
-
 

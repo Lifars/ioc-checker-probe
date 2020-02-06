@@ -8,27 +8,27 @@ use crate::data::{SearchType, Hashed, IocEntryId, IocId};
 use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
 
 
-//#[derive(Clone)]
+#[derive(Clone)]
 pub struct FileParameters {
     pub ioc_id: IocId,
     pub ioc_entry_id: IocEntryId,
     pub search_type: SearchType,
-    pub file_path_or_name: String,
+    pub file_path_or_name: Option<String>,
     pub hash: Option<Hashed>,
 }
 
-pub fn check_files(search_parameters: &Vec<FileParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_files(search_parameters: Vec<FileParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     info!("Searching IOCs using file search.");
     let search_by_exact = search_parameters.iter().filter(
         |search_parameter|
             match search_parameter.search_type {
                 SearchType::Exact => true,
                 _ => false
-            });
+            }).filter(|search_parameter| !search_parameter.file_path_or_name.clone().unwrap_or( "".to_string()).is_empty());
     let ok_results = search_by_exact.filter_map(|search_parameter| {
         check_file_by_hash(
             &search_parameter.hash,
-            Path::new(search_parameter.file_path_or_name.as_str()),
+            Path::new(search_parameter.file_path_or_name.clone().unwrap_or( "".to_string()).as_str()),
             search_parameter.ioc_id,
             search_parameter.ioc_entry_id,
         )
@@ -40,14 +40,23 @@ pub fn check_files(search_parameters: &Vec<FileParameters>) -> Vec<Result<IocEnt
     }
     info!("Found only {} IOCs out of {} search parameters, starting deep search.", results.len(), search_parameters.len());
     let roots = all_drives();
+    let found_ioc_entries = results.iter().filter_map(|result| result.as_ref().ok())
+        .map(|ok_res| ok_res.ioc_entry_id).collect::<HashSet<IocEntryId>>();
+    let remaining_search_parameters: Vec<FileParameters> = search_parameters
+        .into_iter()
+        .filter(|fp| !found_ioc_entries.contains(&fp.ioc_entry_id))
+        .collect();
     let deep_results = roots.iter()
-        .flat_map(|root| find_files(root, search_parameters));
+        .flat_map(|root| deep_search(
+            root,
+            &remaining_search_parameters
+        ));
 
     let final_results = results.into_iter().chain(deep_results.into_iter()).collect::<Vec<Result<IocEntrySearchResult, IocEntrySearchError>>>();
     return final_results;
 }
 
-fn find_files(path: &Path, search_parameters: &[FileParameters]) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+fn deep_search(path: &Path, search_parameters: &[FileParameters]) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     debug!("Searching files in {}", path.display());
 
     let walker = WalkDir::new(path);
@@ -58,6 +67,9 @@ fn find_files(path: &Path, search_parameters: &[FileParameters]) -> Vec<Result<I
     let mut found_file_parameters = HashSet::<usize>::new();
     let mut result = Vec::<Result<IocEntrySearchResult, IocEntrySearchError>>::new();
     for file_entry in files {
+        if found_file_parameters.len() == search_parameters.len(){
+            return result
+        }
         for (i, search_parameter) in search_parameters.iter().enumerate() {
             if !found_file_parameters.contains(&i) {
                 let maybe_query_result = match search_parameter.search_type {
@@ -79,9 +91,19 @@ fn find_files(path: &Path, search_parameters: &[FileParameters]) -> Vec<Result<I
 
 
 fn check_file_by_name(search_parameter: &FileParameters, file_entry: &DirEntry) -> Option<Result<IocEntrySearchResult, IocEntrySearchError>> {
-    let searched_path = Path::new(search_parameter.file_path_or_name.as_str());
+    let empty_str = "".to_string();
+    let searched_path =  Path::new(search_parameter.file_path_or_name.as_ref().unwrap_or(&empty_str).as_str());
     let file_entry_path = file_entry.path();
-    debug!("Checking file paths {} and {} by match", searched_path.display(), file_entry_path.display());
+    debug!("Checking file paths {} and {} by exact match", searched_path.display(), file_entry_path.display());
+
+    if searched_path.as_os_str().is_empty() {
+        return check_file_by_hash(
+            &search_parameter.hash,
+            file_entry_path,
+            search_parameter.ioc_id,
+            search_parameter.ioc_entry_id,
+        )
+    }
 
     let searched_path_parent = searched_path.parent().unwrap_or(Path::new(""));
     let searched_filename = searched_path.file_name().unwrap_or_default();
@@ -97,7 +119,7 @@ fn check_file_by_name(search_parameter: &FileParameters, file_entry: &DirEntry) 
         &search_parameter.hash,
         file_entry_path,
         search_parameter.ioc_id,
-        search_parameter.ioc_entry_id
+        search_parameter.ioc_entry_id,
     )
 }
 
@@ -105,12 +127,19 @@ fn check_file_by_regex(
     search_parameter: &FileParameters,
     file_entry: &DirEntry,
 ) -> Option<Result<IocEntrySearchResult, IocEntrySearchError>> {
-    let searched_path = search_parameter.file_path_or_name.as_str();
+    let empty_str = "".to_string();
+    let searched_path = search_parameter.file_path_or_name.as_ref().unwrap_or(&empty_str).as_str();
     debug!("Checking file paths {} and {} by regex", searched_path, file_entry.path().display());
     let regex_path = Regex::new(searched_path);
     if regex_path.is_err() {
-        error!("Cannot parse file path {} as regex: {}", searched_path, regex_path.unwrap_err());
-        return None;
+        let err = format!("Cannot parse file path {} as regex: {}", searched_path, regex_path.unwrap_err());
+        error!("{}", err);
+        return Some(Err(IocEntrySearchError{
+            ioc_id: search_parameter.ioc_id,
+            ioc_entry_id: search_parameter.ioc_entry_id,
+            kind: "Regex Error".to_string(),
+            message: err
+        }))
     }
     let regex_path = regex_path.unwrap();
 
@@ -192,7 +221,7 @@ fn check_file_by_hash(
 #[cfg(windows)]
 fn all_drives() -> Vec<PathBuf> {
     let mut logical_drives = Vec::<PathBuf>::new();
-    let mut bitfield = unsafe { kernel32::GetLogicalDrives() };
+    let mut bitfield = unsafe { winapi::um::fileapi::GetLogicalDrives() };
     let mut drive = 'A';
 
     while bitfield != 0 {
@@ -200,7 +229,7 @@ fn all_drives() -> Vec<PathBuf> {
             let strfulldl = drive.to_string() + ":\\";
             let cstrfulldl = CString::new(strfulldl.clone()).unwrap();
 
-            let x = unsafe { kernel32::GetDriveTypeA(cstrfulldl.as_ptr()) };
+            let x = unsafe { winapi::um::fileapi::GetDriveTypeA(cstrfulldl.as_ptr()) };
             if x == 3 // || x ==2 // 3 - fixed drive (HDD, USB, ...); 2 - removable drive (Memory Card, Floppy) // see https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea
             {
                 logical_drives.push(PathBuf::from(strfulldl));

@@ -5,6 +5,8 @@ extern crate winapi;
 extern crate log;
 extern crate simplelog;
 extern crate chrono;
+#[cfg(windows)]
+extern crate winreg;
 
 use simplelog::*;
 use std::fs::File;
@@ -18,12 +20,15 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use crate::dns_checker::DnsParameters;
 use crate::mutant_checker::MutexParameters;
+use crate::registry_checker::RegistryParameters;
 //use ureq::json;
 
 
 //mod data;
 #[cfg(windows)]
 mod windows_bindings;
+#[cfg(windows)]
+mod priv_esca;
 
 mod data;
 mod hasher;
@@ -37,6 +42,7 @@ mod arg_parser;
 mod ioc_service;
 mod ioc_evaluator;
 mod dns_checker;
+mod registry_checker;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger();
@@ -64,7 +70,8 @@ fn walk_iocs(
     ioc_entries: &mut HashMap<IocEntryId, IocEntryItem>,
     file_parameters: &mut Vec<FileParameters>,
     dns_parameters: &mut Vec<DnsParameters>,
-    mutex_parameters: &mut Vec<MutexParameters>
+    mutex_parameters: &mut Vec<MutexParameters>,
+    registry_parameters: &mut Vec<RegistryParameters>
 ) {
     let mut id_gen: u64 = 1;
     for ioc in iocs {
@@ -78,6 +85,7 @@ fn walk_iocs(
             file_parameters,
             dns_parameters,
             mutex_parameters,
+            registry_parameters,
             &mut id_gen
         )
     }
@@ -92,6 +100,7 @@ fn walk_ioc_entries(
     file_parameters: &mut Vec<FileParameters>,
     dns_parameters: &mut Vec<DnsParameters>,
     mutex_parameters: &mut Vec<MutexParameters>,
+    registry_parameters: &mut Vec<RegistryParameters>,
     id_gen: &mut IocEntryId
 ) {
     let offspring = ioc_entry.offspring.as_ref();
@@ -109,7 +118,18 @@ fn walk_ioc_entries(
             hash: file_info.hash,
         });
     }
-    if ioc_entry.registry_check.is_some() { checks_specified +=1; }
+    if ioc_entry.registry_check.is_some() {
+        checks_specified +=1;
+        let registry_info = ioc_entry.registry_check.clone().unwrap();
+        registry_parameters.push(RegistryParameters{
+            ioc_id: ioc_root_id,
+            ioc_entry_id: *id_gen,
+            search_type: registry_info.search,
+            key: registry_info.key,
+            value_name: registry_info.value_name,
+            value: registry_info.value
+        })
+    }
     if ioc_entry.dns_check.is_some() {
         checks_specified +=1;
         let dns_info = ioc_entry.dns_check.clone().unwrap();
@@ -155,6 +175,7 @@ fn walk_ioc_entries(
                                   file_parameters,
                                   dns_parameters,
                                   mutex_parameters,
+                                  registry_parameters,
                                   id_gen
                 );
                 this_child_id
@@ -218,6 +239,7 @@ fn run_checker(program_properties: &Properties) {
     let mut file_parameters: Vec<FileParameters> = Vec::new();
     let mut dns_parameters: Vec<DnsParameters> = Vec::new();
     let mut mutex_parameters: Vec<MutexParameters> = Vec::new();
+    let mut registry_parameters: Vec<RegistryParameters> = Vec::new();
 
     walk_iocs(
         &mut root_ioc_entries,
@@ -225,15 +247,17 @@ fn run_checker(program_properties: &Properties) {
         &mut ioc_entries,
         &mut file_parameters,
         &mut dns_parameters,
-        &mut mutex_parameters
+        &mut mutex_parameters,
+        &mut registry_parameters
     );
 
     // Run checkers
     ////////////////////////////////////////////////////////////////////////////
 
-    let file_check_results = file_checker::check_files(&file_parameters);
-    let dns_check_results = dns_checker::check_dns(&dns_parameters);
-    let mutex_check_results = mutant_checker::check_mutexes(&mutex_parameters);
+    let file_check_results = file_checker::check_files(file_parameters);
+    let dns_check_results = dns_checker::check_dns(dns_parameters);
+    let mutex_check_results = mutant_checker::check_mutexes(mutex_parameters);
+    let registry_check_results = registry_checker::check_registry(registry_parameters);
     // ... todo: other checkers
 
     // Combine results
@@ -242,6 +266,7 @@ fn run_checker(program_properties: &Properties) {
         file_check_results.into_iter()
             .chain(dns_check_results.into_iter())
             .chain(mutex_check_results.into_iter())
+            .chain(registry_check_results.into_iter())
             .collect();
 
     // Create cached ioc defs and search results

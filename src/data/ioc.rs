@@ -61,7 +61,7 @@ pub struct RegistryInfo {
 pub struct FileInfo {
     #[serde(default = "SearchType::default")]
     pub search: SearchType,
-    pub name: String,
+    pub name: Option<String>,
     pub hash: Option<Hashed>,
 }
 
@@ -249,78 +249,3 @@ pub struct ProcessInfo {
     #[serde(default)]
     pub data: Option<Vec<String>>
 }
-
-
-
-//#[cfg(test)]
-//mod ioc_test {
-//    use super::*;
-//    use test::NamePadding::PadOnRight;
-//
-//    fn testing_ioc() -> Ioc {
-//        Ioc {
-//            id: 1,
-//            priority: Some(Priority::OneChildren),
-//            logical_operator: LogicalOperator::And,
-//            search: SearchType::Exact,
-//            data: "Something, something, something dark side".to_string(),
-//            name: "DarthVader".to_string(),
-//            children: Some(vec![
-//                Ioc {
-//                    id: 2,
-//                    priority: Some(Priority::Normal),
-//                    logical_operator: LogicalOperator::And,
-//                    search: SearchType::Exact,
-//                    data: "I am his father".to_string(),
-//                    name: "LukeSkywalker".to_string(),
-//                    children: None,
-//                    registry_check: None,
-//                    file_check: None,
-//                },
-//                Ioc {
-//                    id: 3,
-//                    index: 2,
-//                    found: true,
-//                    priority: THRESHOLD_PRIORITY - 5,
-//                    logical_operator: LogicalOperator::And,
-//                    search: SearchType::Exact,
-//                    data: "I am also her father".to_string(),
-//                    name: "LeiaOrgana".to_string(),
-//                    children: None,
-//                    additional_data: None,
-//                    registry_check: None,
-//                    file_check: None,
-//                }
-//            ]),
-//            additional_data: None,
-//            registry_check: None,
-//            file_check: None,
-//        }
-//    }
-//
-//    #[test]
-//    fn evaluate_threshold_priority() {
-//        let ioc = testing_ioc(THRESHOLD_PRIORITY);
-//        assert!(!ioc.evaluate());
-//    }
-//
-//    #[test]
-//    fn evaluate_low_priority() {
-//        let ioc = testing_ioc(THRESHOLD_PRIORITY - 5);
-//        assert!(ioc.evaluate());
-//    }
-//
-//    #[test]
-//    fn evaluate_high_priority() {
-//        let ioc = testing_ioc(THRESHOLD_PRIORITY + 1);
-//        assert!(ioc.evaluate());
-//    }
-//
-//    #[test]
-//    fn print_test_ioc() {
-//        let ioc = testing_ioc(THRESHOLD_PRIORITY);
-//        let json = serde_json::to_string_pretty(&ioc);
-//        assert!(json.is_ok());
-//        println!("{}", json.unwrap())
-//    }
-//}

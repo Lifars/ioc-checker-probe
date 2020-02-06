@@ -10,7 +10,7 @@ pub struct DnsParameters {
 }
 
 #[cfg(windows)]
-pub fn check_dns(search_parameters: &Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     let output = Command::new("ipconfig")
         .args(&["/displaydns"])
         .output()
@@ -37,6 +37,6 @@ pub fn check_dns(search_parameters: &Vec<DnsParameters>) -> Vec<Result<IocEntryS
 }
 
 #[cfg(not(windows))]
-pub fn check_dns(search_parameters: &Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     vec![]
 }
