@@ -143,12 +143,12 @@ impl IocService for HttpIocService {
                 match response {
                     Ok(_) => Ok(()),
                     Err(error) => Err(
-                        IocServiceError { kind: "HTTP Error".to_string(), message: format!("Cannot connect to server due to {}", error) }
+                        IocServiceError { kind: "HTTP Error".to_string(), message: format!("Could not connect to IOC server. {}", error) }
                     )
                 }
             }
             Err(error) => Err(
-                IocServiceError { kind: "JSON Error".to_string(), message: format!("Cannot convert to json due to {}", error) }
+                IocServiceError { kind: "JSON Error".to_string(), message: format!("Could not convert IOC scan results to JSON. {}", error) }
             )
         }
     }

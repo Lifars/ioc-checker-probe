@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 use std::{ptr, mem};
 use std::io::Error;
+use std::ffi::{OsStr, CString, CStr};
 
 #[cfg(windows)]
 pub unsafe fn set_privilege(
@@ -9,8 +10,14 @@ pub unsafe fn set_privilege(
     enable_privilege: bool,
 ) -> Result<(), std::io::Error> {
     let mut luid = MaybeUninit::<winapi::shared::ntdef::LUID>::uninit();
-    let privilege_c_str: &[i8] = mem::transmute(privilege.as_bytes());
 
+    let privilege_c_str = CString::new(privilege.clone());
+    if privilege_c_str.is_err() {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other,
+                                       format!(
+                                           "Cannot convert string {} to C string. {}", privilege, privilege_c_str.unwrap_err()), ));
+    }
+    let privilege_c_str = privilege_c_str.unwrap();
     if winapi::um::winbase::LookupPrivilegeValueA(
         ptr::null(),
         privilege_c_str.as_ptr(),
@@ -18,9 +25,9 @@ pub unsafe fn set_privilege(
     ) == 0 {
         return Err(std::io::Error::new(std::io::ErrorKind::Other,
                                        format!(
-                                           "Cannot acquire {}. privilege lookup failed. System error code: {}",
+                                           "Cannot acquire {}. Win32 function LookupPrivilegeValueA failed. System error code {}",
                                            privilege,
-                                           winapi::um::errhandlingapi::GetLastError()),));
+                                           winapi::um::errhandlingapi::GetLastError()), ));
     }
     let luid = luid.assume_init();
     let mut tp = winapi::um::winnt::TOKEN_PRIVILEGES {
@@ -44,8 +51,12 @@ pub unsafe fn set_privilege(
         &mut cb_previous,
     );
 
-    if winapi::um::errhandlingapi::GetLastError() != winapi::shared::winerror::ERROR_SUCCESS {
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Cannot adjust user privileges in pass 1/2"));
+    let error_code = winapi::um::errhandlingapi::GetLastError();
+    if error_code != winapi::shared::winerror::ERROR_SUCCESS {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Cannot adjust user privileges in pass 1/2. System error code {}", error_code))
+        );
     }
 
     let mut tp_previous = tp_previous.assume_init();
@@ -68,40 +79,46 @@ pub unsafe fn set_privilege(
         ptr::null_mut(),
     );
 
-    if winapi::um::errhandlingapi::GetLastError() != winapi::shared::winerror::ERROR_SUCCESS {
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Cannot adjust user privileges in pass 2/2"));
+    let error_code = winapi::um::errhandlingapi::GetLastError();
+    if error_code != winapi::shared::winerror::ERROR_SUCCESS {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Cannot adjust user privileges in pass 1/2. System error code {}", error_code))
+        );
     }
     Ok(())
 }
 
 #[cfg(windows)]
 pub unsafe fn get_privileges(privilege: &str) -> Result<(), std::io::Error> {
-    let mut token = MaybeUninit::<winapi::shared::ntdef::VOID>::uninit();
+//    let mut token = MaybeUninit::<winapi::shared::ntdef::VOID>::uninit();
+    let mut token: winapi::shared::ntdef::HANDLE = ptr::null_mut();
     let mut current_process_handle = winapi::um::processthreadsapi::GetCurrentProcess();
     let opt_r = winapi::um::processthreadsapi::OpenProcessToken(current_process_handle,
                                                                 winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES | winapi::um::winnt::TOKEN_QUERY,
-                                                                &mut token.as_mut_ptr());
+                                                                &mut token);
 
     if opt_r == 0 {
         return Err(std::io::Error::new(std::io::ErrorKind::Other, "Cannot open process token"));
     }
-    let sp_r = set_privilege(token.as_mut_ptr(), privilege, true);
-    winapi::um::handleapi::CloseHandle(token.as_mut_ptr());
+    debug!("Token of this process is {}", token as i32);
+    let sp_r = set_privilege(token, privilege, true);
+    winapi::um::handleapi::CloseHandle(token);
     return sp_r;
 }
 
 #[cfg(windows)]
 pub unsafe fn drop_privileges(privilege: &str) -> Result<(), std::io::Error> {
-    let mut token = MaybeUninit::<winapi::shared::ntdef::VOID>::uninit();
+    let mut token: winapi::shared::ntdef::HANDLE = ptr::null_mut();
     let mut current_process_handle = winapi::um::processthreadsapi::GetCurrentProcess();
     let opt_r = winapi::um::processthreadsapi::OpenProcessToken(current_process_handle,
                                                                 winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES | winapi::um::winnt::TOKEN_QUERY,
-                                                                &mut token.as_mut_ptr());
+                                                                &mut token);
 
     if opt_r == 0 {
         return Err(std::io::Error::new(std::io::ErrorKind::Other, "Cannot open process token"));
     }
-    let sp_r = set_privilege(token.as_mut_ptr(), privilege, false);
-    winapi::um::handleapi::CloseHandle(token.as_mut_ptr());
+    let sp_r = set_privilege(token, privilege, false);
+    winapi::um::handleapi::CloseHandle(token);
     return sp_r;
 }
