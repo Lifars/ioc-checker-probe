@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub enum PoolType {
     NonPagedPool,
     PagedPool,

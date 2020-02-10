@@ -2,26 +2,16 @@
 extern crate winapi;
 
 //use crate::query_result;
-use crate::data::{IocSearchResult, IocEntryId, IocId};
-use std::mem::MaybeUninit;
-use std::ffi::{OsStr, CString};
-use std::iter::once;
+use crate::data::{IocEntryId, IocId};
+use std::ffi::CString;
 use std::ptr;
 #[cfg(windows)]
 use winapi::ctypes::c_void;
 use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
-use core::mem;
 #[cfg(windows)]
 use crate::windows_bindings::PoolType;
-use std::borrow::BorrowMut;
 #[cfg(windows)]
 use crate::priv_esca::{drop_privileges, get_privileges};
-
-#[cfg(windows)]
-pub enum SystemHandleFlags {
-    ProtectFromClose = 1,
-    Inherit = 2,
-}
 
 #[cfg(windows)]
 #[repr(C)]
@@ -42,6 +32,7 @@ struct SystemHandleInformation {
 }
 
 #[cfg(windows)]
+#[allow(dead_code)]
 struct ObjectTypeInformation {
     name: winapi::shared::ntdef::UNICODE_STRING,
 
@@ -73,8 +64,6 @@ struct ObjectTypeInformation {
 #[cfg(windows)]
 const STATUS_INFO_LENGTH_MISMATCH: u32 = 0xc0000004;
 #[cfg(windows)]
-const SYSTEM_PROCESS_INFORMATION: u32 = 5;
-#[cfg(windows)]
 const SYSTEM_HANDLE_INFORMATION: u32 = 16;
 
 
@@ -87,6 +76,7 @@ type NtQuerySystemInformation = Option<extern "system" fn(
 ) -> winapi::shared::ntdef::NTSTATUS>; // or extern "sdtcall"
 
 #[cfg(windows)]
+#[allow(dead_code)]
 enum ObjectInformationClass {
     ObjectBasicInformation,
     ObjectNameInformation,
@@ -124,6 +114,7 @@ pub struct MutexParameters {
 #[cfg(windows)]
 pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     if search_parameters.is_empty() { return vec![] }
+    info!("Searching IOCs using open mutex search.");
     let mut ioc_results = Vec::<Result<IocEntrySearchResult, IocEntrySearchError>>::new();
     let mut errors = Vec::<String>::new();
     unsafe {
@@ -177,7 +168,7 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
         let mut return_length = 1000u32;
 //        let mut ntstatus = MaybeUninit::<winapi::shared::ntdef::VOID>::uninit();
 
-        while let ntstatus = (query_system_information_fn(
+        while (query_system_information_fn(
             SYSTEM_HANDLE_INFORMATION,
             shi as winapi::shared::ntdef::HANDLE,
             buffer_length as u32,
@@ -197,8 +188,8 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
             ) as *mut SystemHandleInformation;
         }
         for i in 0..((*shi).number_of_handles as usize) {
-            let mut handle: *mut SystemHandle = (*shi).handles.as_mut_ptr().add(i);
-            let mut handle_val = (*handle).handle;
+            let handle: *mut SystemHandle = (*shi).handles.as_mut_ptr().add(i);
+            let handle_val = (*handle).handle;
             let pid = (*handle).process_id;
             let process_handle = winapi::um::processthreadsapi::OpenProcess(
                 winapi::um::winnt::PROCESS_DUP_HANDLE,
@@ -209,7 +200,7 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
                 continue;
             }
 //                let mut dup_handle = MaybeUninit::<c_void>::uninit();
-            let mut dup_handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
+            let dup_handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
             let dup_result = duplicate_object_fn(
                 process_handle,
                 handle_val as *mut c_void,
@@ -224,7 +215,6 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
                 continue;
             }
 
-            let object_type_information = MaybeUninit::<ObjectTypeInformation>::uninit();
             return_length = 0u32;
             query_object_fn(
                 dup_handle,
@@ -310,7 +300,6 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
                 let ss = wss.to_string_lossy(); // Beware possible data loss.
                 search_parameters.iter()
                     .filter(|search_parameter| {
-                        let search_data_wide = widestring::WideString::from(search_parameter.data.clone());
                         ss.contains(&search_parameter.data)
                     }).for_each(|search_parameter| ioc_results.push(Ok(IocEntrySearchResult {
                     ioc_id: search_parameter.ioc_id,
@@ -345,8 +334,6 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
 fn process_results(search_parameters: &Vec<MutexParameters>, mut ioc_results: Vec<Result<IocEntrySearchResult, IocEntrySearchError>>, errors: Vec<String>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     if !search_parameters.is_empty() {
         errors.into_iter().for_each(|error| ioc_results.push(Err(IocEntrySearchError {
-            ioc_id: search_parameters.first().unwrap().ioc_id,
-            ioc_entry_id: search_parameters.first().unwrap().ioc_entry_id,
             kind: "Win32 Error".to_string(),
             message: error,
         })));

@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Result};
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -78,40 +78,15 @@ impl EvaluationPolicy {
 
 #[derive(Debug, Hash, Serialize, Deserialize, Clone)]
 pub struct IocSearchError {
-    pub ioc_id: IocId,
     pub kind: String,
     pub message: String,
 }
 
 impl Display for IocSearchError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "IocError(ioc_id: {}, kind: {}, message: {})", self.ioc_id, self.kind, self.message)
+        write!(f, "IocError(kind: {}, message: {})", self.kind, self.message)
     }
 }
-
-//pub trait Resolvable<T>{
-//    fn resolve(&self) -> T;
-//}
-//
-//impl Resolvable<LogicalOperator> for Option<LogicalOperator> {
-//    fn resolve(&self) -> LogicalOperator {
-//        self.unwrap_or(LogicalOperator::And)
-//    }
-//}
-
-//#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
-//#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-//pub enum Priority {
-//    AllChildren,
-//    OneChildren,
-//    Normal,
-//    Skip,
-//}
-//
-//impl Priority {
-//    fn default() -> Option<Priority> { Some(Priority::Normal) }
-//}
-//
 
 pub type IocId = u64;
 
@@ -204,39 +179,31 @@ pub struct DnsInfo {
     pub name: String
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum CertSearchType {
-    Domain,
-    Issuer
-}
+//#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
+//#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+//pub enum CertSearchType {
+//    Domain,
+//    Issuer
+//}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CertsInfo {
-    pub search: CertSearchType,
-    pub data: Vec<String>
+//    pub search: CertSearchType,
+    pub name: String
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MutexInfo {
-    pub data: String
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ConnSearchType {
-    Ip,
-    Exact,
-    Regex
+    pub name: String
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionsInfo {
-    pub search: ConnSearchType,
-    pub data: Vec<String>
+    pub search: SearchType,
+    pub name: String
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
@@ -247,5 +214,5 @@ pub struct ProcessInfo {
     #[serde(default)]
     pub hash: Option<Hashed>,
     #[serde(default)]
-    pub data: Option<Vec<String>>
+    pub name: Option<String>
 }

@@ -14,13 +14,15 @@ use crate::data::{IocEntry, IocSearchResult, IocSearchError, ReportUploadRequest
 use crate::file_checker::FileParameters;
 use crate::arg_parser::parsed_args;
 use crate::properties::Properties;
-use crate::ioc_service::{FileIocService, IocService, HttpIocService, IocServiceError};
+use crate::ioc_service::{FileIocService, IocService, HttpIocService};
 use crate::ioc_evaluator::{IocEvaluator, IocEntryItem, IocEntrySearchError, IocEntrySearchResult};
 use std::collections::HashMap;
-use std::hash::Hash;
 use crate::dns_checker::DnsParameters;
 use crate::mutant_checker::MutexParameters;
 use crate::registry_checker::RegistryParameters;
+use crate::conns_checker::ConnectionParameters;
+use crate::process_checker::ProcessParameters;
+use crate::cert_checker::CertificateParameters;
 //use ureq::json;
 
 
@@ -43,6 +45,9 @@ mod ioc_service;
 mod ioc_evaluator;
 mod dns_checker;
 mod registry_checker;
+mod process_checker;
+mod conns_checker;
+mod cert_checker;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger();
@@ -71,7 +76,10 @@ fn walk_iocs(
     file_parameters: &mut Vec<FileParameters>,
     dns_parameters: &mut Vec<DnsParameters>,
     mutex_parameters: &mut Vec<MutexParameters>,
-    registry_parameters: &mut Vec<RegistryParameters>
+    registry_parameters: &mut Vec<RegistryParameters>,
+    conns_parameters: &mut Vec<ConnectionParameters>,
+    process_parameters: &mut Vec<ProcessParameters>,
+    cert_parameters: &mut Vec<CertificateParameters>,
 ) {
     let mut id_gen: u64 = 1;
     for ioc in iocs {
@@ -86,7 +94,10 @@ fn walk_iocs(
             dns_parameters,
             mutex_parameters,
             registry_parameters,
-            &mut id_gen
+            conns_parameters,
+            process_parameters,
+            cert_parameters,
+            &mut id_gen,
         )
     }
 }
@@ -101,14 +112,26 @@ fn walk_ioc_entries(
     dns_parameters: &mut Vec<DnsParameters>,
     mutex_parameters: &mut Vec<MutexParameters>,
     registry_parameters: &mut Vec<RegistryParameters>,
-    id_gen: &mut IocEntryId
+    conns_parameters: &mut Vec<ConnectionParameters>,
+    process_parameters: &mut Vec<ProcessParameters>,
+    cert_parameters: &mut Vec<CertificateParameters>,
+    id_gen: &mut IocEntryId,
 ) {
     let offspring = ioc_entry.offspring.as_ref();
     let mut checks_specified = 0u32;
 
-    if ioc_entry.certs_check.is_some() { checks_specified +=1; }
+    if ioc_entry.certs_check.is_some() {
+        checks_specified += 1;
+        let cert_info = ioc_entry.certs_check.clone().unwrap();
+        cert_parameters.push(CertificateParameters {
+            ioc_id: ioc_root_id,
+            ioc_entry_id: *id_gen,
+//            search_type: cert_info.search,
+            name: cert_info.name,
+        })
+    }
     if ioc_entry.file_check.is_some() {
-        checks_specified +=1;
+        checks_specified += 1;
         let file_info = ioc_entry.file_check.clone().unwrap();
         file_parameters.push(FileParameters {
             ioc_id: ioc_root_id,
@@ -119,42 +142,59 @@ fn walk_ioc_entries(
         });
     }
     if ioc_entry.registry_check.is_some() {
-        checks_specified +=1;
+        checks_specified += 1;
         let registry_info = ioc_entry.registry_check.clone().unwrap();
-        registry_parameters.push(RegistryParameters{
+        registry_parameters.push(RegistryParameters {
             ioc_id: ioc_root_id,
             ioc_entry_id: *id_gen,
             search_type: registry_info.search,
             key: registry_info.key,
             value_name: registry_info.value_name,
-            value: registry_info.value
+            value: registry_info.value,
         })
     }
     if ioc_entry.dns_check.is_some() {
-        checks_specified +=1;
+        checks_specified += 1;
         let dns_info = ioc_entry.dns_check.clone().unwrap();
-        dns_parameters.push(DnsParameters{
+        dns_parameters.push(DnsParameters {
             ioc_id: ioc_root_id,
             ioc_entry_id: *id_gen,
-            name: dns_info.name
+            name: dns_info.name,
         })
     }
-    if ioc_entry.process_check.is_some() { checks_specified +=1; }
+    if ioc_entry.process_check.is_some() {
+        checks_specified += 1;
+        let proc_info = ioc_entry.process_check.clone().unwrap();
+        process_parameters.push(ProcessParameters {
+            ioc_id: ioc_root_id,
+            ioc_entry_id: *id_gen,
+            search: proc_info.search,
+            name: proc_info.name,
+            hash: proc_info.hash,
+        })
+    }
     if ioc_entry.mutex_check.is_some() {
-        checks_specified +=1;
+        checks_specified += 1;
         let mutex_info = ioc_entry.mutex_check.clone().unwrap();
-        mutex_parameters.push(MutexParameters{
+        mutex_parameters.push(MutexParameters {
             ioc_entry_id: *id_gen,
             ioc_id: ioc_root_id,
-            data: mutex_info.data
+            data: mutex_info.name,
         })
     }
-    if ioc_entry.conns_check.is_some() { checks_specified +=1; }
+    if ioc_entry.conns_check.is_some() {
+        checks_specified += 1;
+        let conns_info = ioc_entry.conns_check.clone().unwrap();
+        conns_parameters.push(ConnectionParameters {
+            ioc_id: ioc_root_id,
+            ioc_entry_id: *id_gen,
+            search: conns_info.search,
+            name: conns_info.name,
+        })
+    }
 
     let file_info = &ioc_entry.file_check;
-    if file_info.is_some() {
-
-    }
+    if file_info.is_some() {}
 
 
     let entry_item = IocEntryItem {
@@ -176,12 +216,15 @@ fn walk_ioc_entries(
                                   dns_parameters,
                                   mutex_parameters,
                                   registry_parameters,
-                                  id_gen
+                                  conns_parameters,
+                                  process_parameters,
+                                  cert_parameters,
+                                  id_gen,
                 );
                 this_child_id
             }).collect()),
         },
-        checks_specified
+        checks_specified,
     };
     ioc_entries.insert(entry_item.ioc_entry_id, entry_item);
 }
@@ -240,7 +283,9 @@ fn run_checker(program_properties: &Properties) {
     let mut dns_parameters: Vec<DnsParameters> = Vec::new();
     let mut mutex_parameters: Vec<MutexParameters> = Vec::new();
     let mut registry_parameters: Vec<RegistryParameters> = Vec::new();
-
+    let mut conns_parameters: Vec<ConnectionParameters> = Vec::new();
+    let mut proc_parameters: Vec<ProcessParameters> = Vec::new();
+    let mut cert_parameters: Vec<CertificateParameters> = Vec::new();
     walk_iocs(
         &mut root_ioc_entries,
         &iocs,
@@ -248,7 +293,10 @@ fn run_checker(program_properties: &Properties) {
         &mut file_parameters,
         &mut dns_parameters,
         &mut mutex_parameters,
-        &mut registry_parameters
+        &mut registry_parameters,
+        &mut conns_parameters,
+        &mut proc_parameters,
+        &mut cert_parameters,
     );
 
     // Run checkers
@@ -258,6 +306,9 @@ fn run_checker(program_properties: &Properties) {
     let dns_check_results = dns_checker::check_dns(dns_parameters);
     let mutex_check_results = mutant_checker::check_mutexes(mutex_parameters);
     let registry_check_results = registry_checker::check_registry(registry_parameters);
+    let conns_check_results = conns_checker::check_conns(conns_parameters);
+    let proc_check_results = process_checker::check_processes(proc_parameters);
+    let cert_check_results = cert_checker::check_certs(cert_parameters);
     // ... todo: other checkers
 
     // Combine results
@@ -267,6 +318,9 @@ fn run_checker(program_properties: &Properties) {
             .chain(dns_check_results.into_iter())
             .chain(mutex_check_results.into_iter())
             .chain(registry_check_results.into_iter())
+            .chain(conns_check_results)
+            .chain(proc_check_results)
+            .chain(cert_check_results)
             .collect();
 
     // Create cached ioc defs and search results
@@ -283,21 +337,21 @@ fn run_checker(program_properties: &Properties) {
             match ioc_result {
                 Ok(res) => {
                     Ok(
-                        IocSearchResult{
+                        IocSearchResult {
                             ioc_id: res.ioc_id,
-                            data: res.data
+                            data: res.data,
                         }
                     )
-                },
-                Err(err) => { Err(IocSearchError{
-                    ioc_id: err.ioc_id,
-                    kind: err.kind,
-                    message: err.message
-                })},
+                }
+                Err(err) => {
+                    Err(IocSearchError {
+                        kind: err.kind,
+                        message: err.message,
+                    })
+                }
             }
         })
         .collect();
-
 
 
     let upload_request = ReportUploadRequest::new(all_results_dto, evaluated_iocs);

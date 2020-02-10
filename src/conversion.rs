@@ -1,11 +1,9 @@
-use crate::data::{IocEntryId, IocId};
+use crate::data::{IocEntryId};
 use chrono::Utc;
 
 impl crate::hasher::HashError {
-    pub(crate) fn to_ioc_error(&self, ioc_id: IocId,  ioc_entry_id: IocEntryId) -> crate::ioc_evaluator::IocEntrySearchError {
+    pub(crate) fn to_ioc_error(&self) -> crate::ioc_evaluator::IocEntrySearchError {
         crate::ioc_evaluator::IocEntrySearchError {
-            ioc_id,
-            ioc_entry_id,
             kind: self.kind.clone(),
             message: self.message.clone(),
         }

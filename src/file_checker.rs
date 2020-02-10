@@ -18,6 +18,9 @@ pub struct FileParameters {
 }
 
 pub fn check_files(search_parameters: Vec<FileParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+    if search_parameters.is_empty() {
+        return vec![]
+    }
     info!("Searching IOCs using file search.");
     let search_by_exact = search_parameters.iter().filter(
         |search_parameter|
@@ -135,10 +138,8 @@ fn check_file_by_regex(
         let err = format!("Cannot parse file path {} as regex: {}", searched_path, regex_path.unwrap_err());
         error!("{}", err);
         return Some(Err(IocEntrySearchError{
-            ioc_id: search_parameter.ioc_id,
-            ioc_entry_id: search_parameter.ioc_entry_id,
             kind: "Regex Error".to_string(),
-            message: err
+            message: format!("Failed to parse regex from \"{}\" for IOC id {}. Original error: {}", searched_path,  search_parameter.ioc_id, err)
         }))
     }
     let regex_path = regex_path.unwrap();
@@ -205,12 +206,13 @@ fn check_file_by_hash(
                     }
                 }
                 Err(error) => {
-                    error!("Cannot compute {} hash of \"{}\": {}",
+                    let err = format!("Cannot compute {} hash of \"{}\": {}",
                            searched_hash.algorithm,
                            file_path.display(),
                            error
                     );
-                    Some(Err(error.to_ioc_error(ioc_id, ioc_entry_id)))
+                    error!("{}", err);
+                    Some(Err(error.to_ioc_error()))
                 }
             }
         }

@@ -1,7 +1,6 @@
-use crate::data::{IocEntryId, SearchType, Hashed, IocId};
+use crate::data::{IocEntryId, IocId};
 use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
 use std::process::Command;
-use log::logger;
 
 pub struct DnsParameters {
     pub ioc_id: IocId,
@@ -11,6 +10,10 @@ pub struct DnsParameters {
 
 #[cfg(windows)]
 pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+    if search_parameters.is_empty() {
+        return vec![]
+    }
+    info!("Searching IOCs using open DNS search.");
     let output = Command::new("ipconfig")
         .args(&["/displaydns"])
         .output()

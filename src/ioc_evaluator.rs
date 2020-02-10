@@ -1,9 +1,7 @@
 use crate::data::{EvaluationPolicy, IocEntryId, IocId};
 use std::collections::HashMap;
-use crate::data::{IocSearchError, IocSearchResult};
 use serde::export::fmt::Display;
 use std::fmt::Formatter;
-use std::convert::TryInto;
 
 //#[derive(Clone)]
 //pub enum CheckResult{
@@ -31,22 +29,19 @@ pub struct IocEntrySearchResult {
 
 #[derive(Debug, Clone)]
 pub struct IocEntrySearchError {
-    pub ioc_id: IocId,
-    pub ioc_entry_id: IocEntryId,
     pub kind: String,
     pub message: String,
 }
 
 impl Display for IocEntrySearchError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "IocError(ioc_id: {}, kind: {}, message: {})", self.ioc_id, self.kind, self.message)
+        write!(f, "IocError(kind: {}, message: {})", self.kind, self.message)
     }
 }
 
 pub struct IocEvaluator {
     root_ioc_ids: HashMap<IocId, IocEntryId>,
     id_ioc_entries: HashMap<IocEntryId, IocEntryItem>,
-    //    results_reduced: HashMap<IocEntryId, IocEntrySearchResult>,
     id_successful_founds_count: HashMap<IocEntryId, u32>,
 }
 
@@ -75,7 +70,7 @@ impl IocEvaluator {
                         }
                     }
                 }
-                Err(result_value) => {}
+                Err(_) => {}
             }
         };
 

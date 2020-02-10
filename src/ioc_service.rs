@@ -6,7 +6,6 @@ use std::path::Path;
 use std::fs::File;
 use std::io::{BufReader, Write};
 use chrono::Local;
-use minreq::{Response, Error, Request};
 
 #[derive(Debug)]
 pub struct IocServiceError {

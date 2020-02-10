@@ -1,7 +1,6 @@
 use std::mem::MaybeUninit;
-use std::{ptr, mem};
-use std::io::Error;
-use std::ffi::{OsStr, CString, CStr};
+use std::ptr;
+use std::ffi::CString;
 
 #[cfg(windows)]
 pub unsafe fn set_privilege(
@@ -67,7 +66,7 @@ pub unsafe fn set_privilege(
         tp_previous.Privileges[0].Attributes |= winapi::um::winnt::SE_PRIVILEGE_ENABLED
     } else {
         tp_previous.Privileges[0].Attributes ^=
-            (winapi::um::winnt::SE_PRIVILEGE_ENABLED & tp_previous.Privileges[0].Attributes)
+            winapi::um::winnt::SE_PRIVILEGE_ENABLED & tp_previous.Privileges[0].Attributes
     }
 
     winapi::um::securitybaseapi::AdjustTokenPrivileges(
@@ -93,7 +92,7 @@ pub unsafe fn set_privilege(
 pub unsafe fn get_privileges(privilege: &str) -> Result<(), std::io::Error> {
 //    let mut token = MaybeUninit::<winapi::shared::ntdef::VOID>::uninit();
     let mut token: winapi::shared::ntdef::HANDLE = ptr::null_mut();
-    let mut current_process_handle = winapi::um::processthreadsapi::GetCurrentProcess();
+    let current_process_handle = winapi::um::processthreadsapi::GetCurrentProcess();
     let opt_r = winapi::um::processthreadsapi::OpenProcessToken(current_process_handle,
                                                                 winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES | winapi::um::winnt::TOKEN_QUERY,
                                                                 &mut token);
@@ -110,7 +109,7 @@ pub unsafe fn get_privileges(privilege: &str) -> Result<(), std::io::Error> {
 #[cfg(windows)]
 pub unsafe fn drop_privileges(privilege: &str) -> Result<(), std::io::Error> {
     let mut token: winapi::shared::ntdef::HANDLE = ptr::null_mut();
-    let mut current_process_handle = winapi::um::processthreadsapi::GetCurrentProcess();
+    let current_process_handle = winapi::um::processthreadsapi::GetCurrentProcess();
     let opt_r = winapi::um::processthreadsapi::OpenProcessToken(current_process_handle,
                                                                 winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES | winapi::um::winnt::TOKEN_QUERY,
                                                                 &mut token);
