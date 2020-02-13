@@ -6,6 +6,7 @@ use regex::Regex;
 use std::collections::HashSet;
 use crate::data::{SearchType, Hashed, IocEntryId, IocId};
 use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
+use crate::dir_resolver;
 
 
 #[derive(Clone)]
@@ -19,19 +20,38 @@ pub struct FileParameters {
 
 pub fn check_files(search_parameters: Vec<FileParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
     if search_parameters.is_empty() {
-        return vec![]
+        return vec![];
     }
+
+    let search_parameters = search_parameters.into_iter()
+        .map(|sp| match &sp.search_type {
+            SearchType::Exact => FileParameters {
+                ioc_id: sp.ioc_id,
+                ioc_entry_id: sp.ioc_entry_id,
+                search_type: sp.search_type,
+                file_path_or_name: match sp.file_path_or_name {
+                    Some(file_path_or_name) => Some(dir_resolver::resolve(
+                        PathBuf::from(file_path_or_name)).to_string_lossy().to_string()
+                    ),
+                    None => None
+                },
+                hash: sp.hash,
+            },
+            SearchType::Regex => sp
+        }
+        ).collect::<Vec<FileParameters>>();
+
     info!("Searching IOCs using file search.");
     let search_by_exact = search_parameters.iter().filter(
         |search_parameter|
             match search_parameter.search_type {
                 SearchType::Exact => true,
                 _ => false
-            }).filter(|search_parameter| !search_parameter.file_path_or_name.clone().unwrap_or( "".to_string()).is_empty());
+            }).filter(|search_parameter| !search_parameter.file_path_or_name.clone().unwrap_or("".to_string()).is_empty());
     let ok_results = search_by_exact.filter_map(|search_parameter| {
         check_file_by_hash(
             &search_parameter.hash,
-            Path::new(search_parameter.file_path_or_name.clone().unwrap_or( "".to_string()).as_str()),
+            Path::new(search_parameter.file_path_or_name.clone().unwrap_or("".to_string()).as_str()),
             search_parameter.ioc_id,
             search_parameter.ioc_entry_id,
         )
@@ -52,7 +72,7 @@ pub fn check_files(search_parameters: Vec<FileParameters>) -> Vec<Result<IocEntr
     let deep_results = roots.iter()
         .flat_map(|root| deep_search(
             root,
-            &remaining_search_parameters
+            &remaining_search_parameters,
         ));
 
     let final_results = results.into_iter().chain(deep_results.into_iter()).collect::<Vec<Result<IocEntrySearchResult, IocEntrySearchError>>>();
@@ -70,8 +90,8 @@ fn deep_search(path: &Path, search_parameters: &[FileParameters]) -> Vec<Result<
     let mut found_file_parameters = HashSet::<usize>::new();
     let mut result = Vec::<Result<IocEntrySearchResult, IocEntrySearchError>>::new();
     for file_entry in files {
-        if found_file_parameters.len() == search_parameters.len(){
-            return result
+        if found_file_parameters.len() == search_parameters.len() {
+            return result;
         }
         for (i, search_parameter) in search_parameters.iter().enumerate() {
             if !found_file_parameters.contains(&i) {
@@ -95,7 +115,7 @@ fn deep_search(path: &Path, search_parameters: &[FileParameters]) -> Vec<Result<
 
 fn check_file_by_name(search_parameter: &FileParameters, file_entry: &DirEntry) -> Option<Result<IocEntrySearchResult, IocEntrySearchError>> {
     let empty_str = "".to_string();
-    let searched_path =  Path::new(search_parameter.file_path_or_name.as_ref().unwrap_or(&empty_str).as_str());
+    let searched_path = Path::new(search_parameter.file_path_or_name.as_ref().unwrap_or(&empty_str).as_str());
     let file_entry_path = file_entry.path();
     debug!("Checking file paths {} and {} by exact match", searched_path.display(), file_entry_path.display());
 
@@ -105,7 +125,7 @@ fn check_file_by_name(search_parameter: &FileParameters, file_entry: &DirEntry) 
             file_entry_path,
             search_parameter.ioc_id,
             search_parameter.ioc_entry_id,
-        )
+        );
     }
 
     let searched_path_parent = searched_path.parent().unwrap_or(Path::new(""));
@@ -137,10 +157,10 @@ fn check_file_by_regex(
     if regex_path.is_err() {
         let err = format!("Cannot parse file path {} as regex: {}", searched_path, regex_path.unwrap_err());
         error!("{}", err);
-        return Some(Err(IocEntrySearchError{
+        return Some(Err(IocEntrySearchError {
             kind: "Regex Error".to_string(),
-            message: format!("Failed to parse regex from \"{}\" for IOC id {}. Original error: {}", searched_path,  search_parameter.ioc_id, err)
-        }))
+            message: format!("Failed to parse regex from \"{}\" for IOC id {}. Original error: {}", searched_path, search_parameter.ioc_id, err),
+        }));
     }
     let regex_path = regex_path.unwrap();
 
@@ -176,7 +196,7 @@ fn check_file_by_hash(
                 IocEntrySearchResult {
                     ioc_id,
                     ioc_entry_id,
-                    data: vec![ioc_data],
+                    data: vec![format!("File {}", ioc_data)],
                 }
             ))
         }
@@ -195,8 +215,8 @@ fn check_file_by_hash(
                                 ioc_id,
                                 ioc_entry_id,
                                 data: vec![
-                                    String::from(file_path.to_string_lossy()),
-                                    file_hash.value
+                                    format!("File {}", String::from(file_path.to_string_lossy())),
+                                    format!("Hash {}", file_hash.value)
                                 ],
                             }
                         ))
@@ -207,9 +227,9 @@ fn check_file_by_hash(
                 }
                 Err(error) => {
                     let err = format!("Cannot compute {} hash of \"{}\": {}",
-                           searched_hash.algorithm,
-                           file_path.display(),
-                           error
+                                      searched_hash.algorithm,
+                                      file_path.display(),
+                                      error
                     );
                     error!("{}", err);
                     Some(Err(error.to_ioc_error()))

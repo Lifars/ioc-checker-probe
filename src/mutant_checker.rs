@@ -304,7 +304,7 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
                     }).for_each(|search_parameter| ioc_results.push(Ok(IocEntrySearchResult {
                     ioc_id: search_parameter.ioc_id,
                     ioc_entry_id: search_parameter.ioc_entry_id,
-                    data: vec![ss.clone()],
+                    data: vec![format!("Mutex {}", ss)],
                 })));
             }
             winapi::um::memoryapi::VirtualFree(

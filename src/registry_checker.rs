@@ -232,7 +232,7 @@ fn check_by_value(search_parameter: &RegistryParameters, reg_entry: &winreg::Reg
                 Some(Ok(IocEntrySearchResult {
                     ioc_id: search_parameter.ioc_id,
                     ioc_entry_id: search_parameter.ioc_entry_id,
-                    data: vec![format!("Found reg key {}\\{} == {}", search_parameter.key, search_parameter.value_name, search_value)],
+                    data: vec![format!("Registry {}\\{} == {}", search_parameter.key, search_parameter.value_name, search_value)],
                 }))
             } else {
                 None

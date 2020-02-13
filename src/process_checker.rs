@@ -81,7 +81,7 @@ pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<Result<
                             result.push(Ok(IocEntrySearchResult {
                                 ioc_id: sp.proc_param.ioc_id,
                                 ioc_entry_id: sp.proc_param.ioc_entry_id,
-                                data: vec![searched_name.clone()],
+                                data: vec![format!("Process {}", searched_name.clone())],
                             }));
                         }
                     }

@@ -35,7 +35,7 @@ pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<Result<IocEntrySe
         .map(|search_param| Ok(IocEntrySearchResult {
             ioc_id: search_param.ioc_id,
             ioc_entry_id: search_param.ioc_entry_id,
-            data: vec![search_param.name.clone()],
+            data: vec![format!("DNS {}", search_param.name.clone())],
         })).collect()
 }
 

@@ -84,7 +84,7 @@ pub fn check_certs(search_parameters: Vec<CertificateParameters>) -> Vec<Result<
             .map(|sp| Ok(IocEntrySearchResult {
                 ioc_id: sp.ioc_id,
                 ioc_entry_id: sp.ioc_entry_id,
-                data: vec![sp.name.clone()],
+                data: vec![format!("Cert {}", sp.name)],
             })).collect::<Vec<Result<IocEntrySearchResult, IocEntrySearchError>>>()
     }).collect()
 }

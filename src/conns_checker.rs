@@ -87,7 +87,7 @@ fn check_item(
         result.push(Ok(IocEntrySearchResult {
             ioc_id: sp.conn_param.ioc_id,
             ioc_entry_id: sp.conn_param.ioc_entry_id,
-            data: vec![address_name.clone()],
+            data: vec![format!("Open conn {}",address_name.clone())],
         }));
     }
 }

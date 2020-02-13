@@ -48,6 +48,7 @@ mod registry_checker;
 mod process_checker;
 mod conns_checker;
 mod cert_checker;
+mod dir_resolver;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger();
@@ -63,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn setup_logger() {
     CombinedLogger::init(
         vec![
-            TermLogger::new(LevelFilter::Debug, Config::default(), TerminalMode::Mixed).unwrap(),
+            TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed).unwrap(),
             WriteLogger::new(LevelFilter::Debug, Config::default(), File::create("ioc.log").unwrap()),
         ]
     ).unwrap();
