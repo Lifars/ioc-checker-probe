@@ -6,6 +6,7 @@ use std::path::Path;
 use std::fs::File;
 use std::io::{BufReader, Write};
 use chrono::Local;
+use reqwest::header;
 
 #[derive(Debug)]
 pub struct IocServiceError {
@@ -108,47 +109,50 @@ impl HttpIocService {
     }
 }
 
+fn http_client() -> Result<reqwest::blocking::Client, IocServiceError> {
+    reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(true) // NONO: Need to be removed after correct cert is bought
+        .build()
+        .map_err(|err| IocServiceError {
+            kind: "HTTP Error".to_string(),
+            message: format!("{}", err),
+        })
+}
+
 impl IocService for HttpIocService {
     fn receive_ioc(&self) -> Result<GetIocResponse, IocServiceError> {
-        let hours = 24;
-        let response = minreq::get(format!("{}/api/probe/auth/get/ioc/{}", self.url.as_str(), hours))
-            .with_header("Authorization", format!("Basic {}", self.authorization_header_value.as_str()))
-            .with_header("WWW-Authenticate", format!("Basic REALM=\"{}\", charset=UTF-8", REALM))
-            .send();
-        match response {
-            Ok(response) => match response.status_code {
-                status if status < 300 => {
-                    let body = response.json::<GetIocResponse>();
-                    let body = body.map_err(|error|
-                        IocServiceError { kind: "JSON Error".to_string(), message: format!("Failed to retrieve json due to {}", error) }
-                    );
-                    body
-                }
-                status => Err(IocServiceError { kind: "HTTP Error".to_string(), message: format!("Cannot connect to server, response code {}", status) })
-            },
-            Err(err) => Err(IocServiceError { kind: "HTTP Error".to_string(), message: format!("Cannot connect to server due to {}", err) }),
-        }
+        let hours = 2;
+
+        let client = http_client()?;
+        let url = format!("{}/api/probe/auth/get/ioc/{}", self.url.as_str(), hours).to_string();
+        let response: GetIocResponse = client.get(&url)
+            .header(header::AUTHORIZATION, format!("Basic {}", self.authorization_header_value.as_str()))
+            .header(header::WWW_AUTHENTICATE, format!("Basic REALM=\"{}\", charset=UTF-8", REALM))
+            .send()
+            .map_err(|err| IocServiceError {
+                kind: "HTTP Error".to_string(),
+                message: format!("{}", err),
+            })?
+            .json()
+            .map_err(|err| IocServiceError {
+                kind: "HTTP Error".to_string(),
+                message: format!("{}", err),
+            })?;
+        Ok(response)
     }
 
     fn report_results(&self, request: ReportUploadRequest) -> Result<(), IocServiceError> {
-        let request_body = minreq::post(format!("{}/api/probe/auth/post/ioc/result", self.url.as_str()))
-            .with_header("Authorization", format!("Basic {}", self.authorization_header_value.as_str()))
-            .with_header("WWW-Authenticate", format!("Basic REALM=\"{}\", charset=UTF-8", REALM))
-            .with_json(&request);
-        match request_body {
-            Ok(request_body) => {
-                let response = request_body.send();
-
-                match response {
-                    Ok(_) => Ok(()),
-                    Err(error) => Err(
-                        IocServiceError { kind: "HTTP Error".to_string(), message: format!("Could not connect to IOC server. {}", error) }
-                    )
-                }
-            }
-            Err(error) => Err(
-                IocServiceError { kind: "JSON Error".to_string(), message: format!("Could not convert IOC scan results to JSON. {}", error) }
-            )
-        }
+        let client = http_client()?;
+        let url = format!("{}/api/probe/auth/post/ioc/result", self.url.as_str()).to_string();
+        client.post(&url)
+            .header(header::AUTHORIZATION, format!("Basic {}", self.authorization_header_value.as_str()))
+            .header(header::WWW_AUTHENTICATE, format!("Basic REALM=\"{}\", charset=UTF-8", REALM))
+            .json(&request)
+            .send()
+            .map_err(|err| IocServiceError {
+                kind: "HTTP Error".to_string(),
+                message: format!("{}", err),
+            })?;
+        Ok(())
     }
 }
