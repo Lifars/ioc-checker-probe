@@ -179,17 +179,9 @@ pub struct DnsInfo {
     pub name: String
 }
 
-//#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
-//#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-//pub enum CertSearchType {
-//    Domain,
-//    Issuer
-//}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CertsInfo {
-//    pub search: CertSearchType,
     pub name: String
 }
 

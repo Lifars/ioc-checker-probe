@@ -199,7 +199,6 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
             if process_handle.is_null() {
                 continue;
             }
-//                let mut dup_handle = MaybeUninit::<c_void>::uninit();
             let dup_handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
             let dup_result = duplicate_object_fn(
                 process_handle,
@@ -240,7 +239,6 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
                 let err = format!("NtQueryObject failed, error code {}", winapi::um::errhandlingapi::GetLastError());
                 error!("{}", err);
                 errors.push(err);
-//                    winapi::um::handleapi::CloseHandle(dup_handle.as_mut_ptr());
                 winapi::um::handleapi::CloseHandle(dup_handle);
                 winapi::um::handleapi::CloseHandle(process_handle);
             }
@@ -340,7 +338,6 @@ fn process_results(search_parameters: &Vec<MutexParameters>, mut ioc_results: Ve
     }
     ioc_results
 }
-
 
 #[cfg(not(windows))]
 pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {

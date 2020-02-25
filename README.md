@@ -10,7 +10,7 @@ Strip symbols from binary (make sure the MinGW's *bin* folder is in *Path*)
 
 This may greatly reduce size of the binary executable at the cost of compilation times.
 
-[Source](https://github.com/johnthagen/min-sized-rust)
+The steps below are taken from [source](https://github.com/johnthagen/min-sized-rust), but I was unable to reproduce them yet.
 
 Install *Xargo* and nightly compiler
 
@@ -21,11 +21,11 @@ $ rustup component add rust-src
 $ cargo install xargo
 ```
 
-Run `rustc -vV` and copy value of *host* key.
+Run `rustc -vV` and copy the value of the *host* key.
 In my case the value is **x86_64-pc-windows-gnu** 
 
 Build using this command
 ```bash
 xargo build --target x86_64-pc-windows-gnu --release
 ```
-Make sure to replace the `--target` parameter with your *host* value.
+Be sure to replace the value of `--target` parameter with your *host* value.

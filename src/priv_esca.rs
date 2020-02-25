@@ -90,7 +90,6 @@ pub unsafe fn set_privilege(
 
 #[cfg(windows)]
 pub unsafe fn get_privileges(privilege: &str) -> Result<(), std::io::Error> {
-//    let mut token = MaybeUninit::<winapi::shared::ntdef::VOID>::uninit();
     let mut token: winapi::shared::ntdef::HANDLE = ptr::null_mut();
     let current_process_handle = winapi::um::processthreadsapi::GetCurrentProcess();
     let opt_r = winapi::um::processthreadsapi::OpenProcessToken(current_process_handle,

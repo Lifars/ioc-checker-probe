@@ -3,13 +3,6 @@ use std::collections::HashMap;
 use serde::export::fmt::Display;
 use std::fmt::Formatter;
 
-//#[derive(Clone)]
-//pub enum CheckResult{
-//    Found,
-//    NotFound,
-//    NotSpecifed
-//}
-
 #[derive(Clone)]
 pub struct IocEntryItem {
     pub ioc_entry_id: IocEntryId,
@@ -50,7 +43,6 @@ impl IocEvaluator {
                id_ioc_entries: HashMap<IocEntryId, IocEntryItem>,
                founds: &[Result<IocEntrySearchResult, IocEntrySearchError>],
     ) -> Self {
-//        let mut results_reduced: HashMap<IocEntryId, IocEntrySearchResult> = HashMap::new();
         let mut id_successful_founds_count: HashMap<IocEntryId, u32> = HashMap::new();
 
         for result in founds {
@@ -77,7 +69,6 @@ impl IocEvaluator {
         IocEvaluator {
             root_ioc_ids,
             id_ioc_entries,
-//            id_founds,
             id_successful_founds_count,
         }
     }
@@ -108,13 +99,17 @@ impl IocEvaluator {
         let evaluated_self = self.evaluate_without_offspring(ioc_entry);
         match evaluated_self {
             false => match ioc_entry.eval_policy {
-                EvaluationPolicy::All => return if ioc_entry.checks_specified == 0 { self.evaluate_children(&ioc_entry, false) } else { false },
-                EvaluationPolicy::One => return self.evaluate_children(&ioc_entry, false)
+                EvaluationPolicy::All => if ioc_entry.checks_specified == 0 {
+                    self.evaluate_children(&ioc_entry, false)
+                } else {
+                    false
+                },
+                EvaluationPolicy::One => self.evaluate_children(&ioc_entry, false)
             }
             true => {
                 match ioc_entry.eval_policy {
-                    EvaluationPolicy::All => return self.evaluate_children(&ioc_entry, true),
-                    EvaluationPolicy::One => return true
+                    EvaluationPolicy::All => self.evaluate_children(&ioc_entry, true),
+                    EvaluationPolicy::One => true
                 }
             }
         }
@@ -147,25 +142,20 @@ impl IocEvaluator {
     ) -> bool {
         let children = parent_ioc_entry.children.as_ref();
         match children {
-            None => return empty_children_evaluation_result,
+            None => empty_children_evaluation_result,
             Some(children) => {
                 if children.is_empty() {
-                    return empty_children_evaluation_result;
-                }
-                match parent_ioc_entry.child_eval {
-                    EvaluationPolicy::All => {
-                        let found_children = self.evaluate_non_empty_vector(children);
-                        if found_children == children.len() {
-                            return true;
+                    empty_children_evaluation_result
+                } else {
+                    match parent_ioc_entry.child_eval {
+                        EvaluationPolicy::All => {
+                            let found_children = self.evaluate_non_empty_vector(children);
+                            found_children == children.len()
                         }
-                        return false;
-                    }
-                    EvaluationPolicy::One => {
-                        let found_children = self.evaluate_non_empty_vector(children);
-                        if found_children > 0 {
-                            return true;
+                        EvaluationPolicy::One => {
+                            let found_children = self.evaluate_non_empty_vector(children);
+                            found_children > 0
                         }
-                        return false;
                     }
                 }
             }
@@ -173,18 +163,6 @@ impl IocEvaluator {
     }
 
     fn evaluate_non_empty_vector(&self, ioc_entry_ids: &Vec<IocEntryId>) -> usize {
-//        let mut found_count = 0;
-//        for ioc_entry_id in ioc_entry_ids {
-//            let ioc_entry = self.id_ioc_entries.get(ioc_entry_id);
-//            match ioc_entry {
-//                None => {}
-//                Some(ioc_entry) => {
-//                    if self.evaluate_one(ioc_entry) {
-//                        found_count += 1;
-//                    }
-//                }
-//            }
-//        }
         let found_count = ioc_entry_ids.iter()
             .filter(|ioc_entry_id| {
                 let ioc_entry = self.id_ioc_entries.get(ioc_entry_id);

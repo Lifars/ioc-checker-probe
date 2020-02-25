@@ -23,10 +23,7 @@ use crate::registry_checker::RegistryParameters;
 use crate::conns_checker::ConnectionParameters;
 use crate::process_checker::ProcessParameters;
 use crate::cert_checker::CertificateParameters;
-//use ureq::json;
 
-
-//mod data;
 #[cfg(windows)]
 mod windows_bindings;
 #[cfg(windows)]
@@ -35,7 +32,6 @@ mod priv_esca;
 mod data;
 mod hasher;
 mod mutant_checker;
-//mod query_result;
 mod file_checker;
 mod properties;
 mod utils;
@@ -127,7 +123,6 @@ fn walk_ioc_entries(
         cert_parameters.push(CertificateParameters {
             ioc_id: ioc_root_id,
             ioc_entry_id: *id_gen,
-//            search_type: cert_info.search,
             name: cert_info.name,
         })
     }
@@ -310,7 +305,6 @@ fn run_checker(program_properties: &Properties) {
     let conns_check_results = conns_checker::check_conns(conns_parameters);
     let proc_check_results = process_checker::check_processes(proc_parameters);
     let cert_check_results = cert_checker::check_certs(cert_parameters);
-    // ... todo: other checkers
 
     // Combine results
     ////////////////////////////////////////////////////////////////////////////
@@ -353,7 +347,6 @@ fn run_checker(program_properties: &Properties) {
             }
         })
         .collect();
-
 
     let upload_request = ReportUploadRequest::new(all_results_dto, evaluated_iocs);
     match args.local_mode {

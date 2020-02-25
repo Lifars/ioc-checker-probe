@@ -1,6 +1,6 @@
 [package]
 name = "ioc-checker-probe"
-version = "0.2.0"
+version = "1.0.0"
 authors = ["LIFARS"]
 edition = "2018"
 
@@ -9,7 +9,7 @@ edition = "2018"
 [profile.release]
 opt-level = 'z'  # Optimize for size. Comment it to optimize for speed
 lto = true
-#codegen-units = 1 # comment for faster build time, however may result in larger executable
+#codegen-units = 1 # uncomment for smaller executable, however will result in much slower compile time
 panic = 'abort'
 
 [dependencies]
