@@ -76,18 +76,6 @@ impl EvaluationPolicy {
     pub fn default() -> EvaluationPolicy { EvaluationPolicy::One }
 }
 
-#[derive(Debug, Hash, Serialize, Deserialize, Clone)]
-pub struct IocSearchError {
-    pub kind: String,
-    pub message: String,
-}
-
-impl Display for IocSearchError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "IocError(kind: {}, message: {})", self.kind, self.message)
-    }
-}
-
 pub type IocId = u64;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash)]
@@ -155,6 +143,7 @@ pub struct GetIocResponse
     #[serde(default)]
     pub release_datetime: Option<DateTime<Utc>>,
     pub iocs: Vec<Ioc>,
+    pub total_iocs: usize
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash)]
@@ -162,8 +151,6 @@ pub struct GetIocResponse
 pub struct ReportUploadRequest {
     pub datetime: DateTime<Utc>,
     pub found_iocs: Vec<IocId>,
-    pub ioc_results: Vec<IocSearchResult>,
-    pub ioc_errors: Vec<IocSearchError>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash)]

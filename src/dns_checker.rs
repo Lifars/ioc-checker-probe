@@ -1,5 +1,5 @@
 use crate::data::{IocEntryId, IocId};
-use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
+use crate::ioc_evaluator::IocEntrySearchResult;
 use std::process::Command;
 
 pub struct DnsParameters {
@@ -9,18 +9,18 @@ pub struct DnsParameters {
 }
 
 #[cfg(windows)]
-pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<IocEntrySearchResult> {
     if search_parameters.is_empty() {
-        return vec![]
+        return vec![];
     }
-    info!("Searching IOCs using open DNS search.");
+    info!("DNS search: Searching IOCs using open DNS search.");
     let output = Command::new("ipconfig")
         .args(&["/displaydns"])
         .output()
         .expect("failed to execute process");
     let output_str = std::str::from_utf8(&output.stdout);
     if output_str.is_err() {
-        error!("Cannot read DNS entries due to {}", output_str.err().unwrap());
+        error!("DNS search: {}", output_str.err().unwrap());
         return vec![];
     }
     let output_str = output_str.unwrap();
@@ -32,14 +32,19 @@ pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<Result<IocEntrySe
 
     search_parameters.iter()
         .filter(|search_param| dns_names.iter().any(|dns| *dns == search_param.name.as_str()))
-        .map(|search_param| Ok(IocEntrySearchResult {
-            ioc_id: search_param.ioc_id,
-            ioc_entry_id: search_param.ioc_entry_id,
-            data: vec![format!("DNS {}", search_param.name.clone())],
-        })).collect()
+        .map(|search_param| {
+            info!("DNS search: Found DNS {} for IOC {}",
+                  search_param.name.clone(),
+                  search_param.ioc_id
+            );
+            IocEntrySearchResult {
+                ioc_id: search_param.ioc_id,
+                ioc_entry_id: search_param.ioc_entry_id,
+            }
+        }).collect()
 }
 
 #[cfg(not(windows))]
-pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<IocEntrySearchResult> {
     vec![]
 }

@@ -1,9 +1,9 @@
 use crate::data::{IocEntryId, SearchType, Hashed, IocId, HashType};
-use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
+use crate::ioc_evaluator::IocEntrySearchResult;
 use sysinfo::{ProcessExt, SystemExt};
 use regex::Regex;
 use std::path::Path;
-use crate::hasher::{Hasher};
+use crate::hasher::Hasher;
 
 pub struct ProcessParameters {
     pub ioc_id: IocId,
@@ -19,12 +19,12 @@ struct ProcessParametersRegexed {
 }
 
 #[cfg(windows)]
-pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<IocEntrySearchResult> {
     if search_parameters.is_empty() {
         return vec![];
     }
-    info!("Searching IOCs using open process search.");
-    let mut result: Vec<Result<IocEntrySearchResult, IocEntrySearchError>> = Vec::new();
+    info!("Process search: Searching IOCs using open process search.");
+    let mut result: Vec<IocEntrySearchResult> = Vec::new();
     let search_parameters: Vec<ProcessParametersRegexed> = search_parameters.into_iter().filter_map(|sp| {
         match &sp.hash {
             Some(_) => Some(ProcessParametersRegexed { proc_param: sp, regex: None }),
@@ -37,13 +37,6 @@ pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<Result<
                             Ok(regex) => Some(ProcessParametersRegexed { proc_param: sp, regex: Some(regex) }),
                             Err(err) => {
                                 error!("{}", err);
-                                result.push(Err(IocEntrySearchError {
-                                    kind: "Regex ERROR".to_string(),
-                                    message: format!("Cannot parse \"{}\" as regex. IOC id {}. Original error: {}",
-                                                     searched_name,
-                                                     sp.ioc_id,
-                                                     err),
-                                }));
                                 None
                             }
                         },
@@ -68,6 +61,7 @@ pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<Result<
         let hasher_sha256 = Hasher::new(HashType::Sha256);
         let executable_hash_sha256 = hasher_sha256.hash_file_by_path(exe_path);
 
+        debug!("Process search: Checking process {}", proc.name());
         search_parameters.iter().for_each(|sp| {
             match &sp.proc_param.hash {
                 None => match &sp.proc_param.name {
@@ -78,11 +72,11 @@ pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<Result<
                             Some(regex) => regex.is_match(&proc.name()),
                         };
                         if matches {
-                            result.push(Ok(IocEntrySearchResult {
+                            info!("Process search: Found process {} for IOC {}", searched_name, sp.proc_param.ioc_id);
+                            result.push(IocEntrySearchResult {
                                 ioc_id: sp.proc_param.ioc_id,
                                 ioc_entry_id: sp.proc_param.ioc_entry_id,
-                                data: vec![format!("Process {}", searched_name.clone())],
-                            }));
+                            });
                         }
                     }
                 },
@@ -94,27 +88,21 @@ pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<Result<
                     };
                     match executable_hash {
                         Ok(executable_hash) => {
-                            let mut data = Vec::<String>::new();
                             match &sp.proc_param.name {
                                 None => {}
-                                Some(process_name) => data.push(process_name.clone()),
+                                Some(process_name) =>
+                                    info!("Process search: Found process {} with executable hash {} for IOC {}",
+                                          process_name,
+                                          &executable_hash.value,
+                                          sp.proc_param.ioc_id
+                                    ),
                             };
-                            data.push(executable_hash.algorithm.to_string());
-                            data.push(executable_hash.value.clone());
-                            result.push(Ok(IocEntrySearchResult {
+                            result.push(IocEntrySearchResult {
                                 ioc_id: sp.proc_param.ioc_id,
                                 ioc_entry_id: sp.proc_param.ioc_entry_id,
-                                data,
-                            }))
+                            })
                         }
-                        Err(err) => result.push(Err(IocEntrySearchError {
-                            kind: "Hash ERROR".to_string(),
-                            message: format!("Cannot compute hash of file {}. IOC id {}. Original error: {}",
-                                exe_path.display(),
-                                sp.proc_param.ioc_id,
-                                err
-                            ),
-                        }))
+                        Err(err) => { error!("{}", err); }
                     }
                 }
             }
@@ -124,6 +112,6 @@ pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<Result<
 }
 
 #[cfg(not(windows))]
-pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<IocEntrySearchResult> {
     vec![]
 }

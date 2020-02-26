@@ -1,5 +1,5 @@
 use crate::data::{IocEntryId, IocId, SearchType};
-use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
+use crate::ioc_evaluator::IocEntrySearchResult;
 #[cfg(windows)]
 use crate::priv_esca::{get_privileges, drop_privileges};
 #[cfg(windows)]
@@ -19,16 +19,16 @@ pub struct RegistryParameters {
 }
 
 #[cfg(not(windows))]
-pub fn check_registry(search_parameters: Vec<RegistryParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_registry(search_parameters: Vec<RegistryParameters>) -> Vec<IocEntrySearchResult> {
     return vec![];
 }
 
 #[cfg(windows)]
-pub fn check_registry(search_parameters: Vec<RegistryParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_registry(search_parameters: Vec<RegistryParameters>, deep_search_enabled: bool) -> Vec<IocEntrySearchResult> {
     if search_parameters.is_empty() {
         return vec![];
     }
-    info!("Searching IOCs using registry search.");
+    info!("Registry search: Searching IOCs using registry search.");
     unsafe {
         let gp = get_privileges(winapi::um::winnt::SE_TAKE_OWNERSHIP_NAME);
         if gp.is_err() { error!("{}", gp.unwrap_err()) }
@@ -46,34 +46,40 @@ pub fn check_registry(search_parameters: Vec<RegistryParameters>) -> Vec<Result<
                 &search_parameter,
                 &registry,
             ),
-            Err(err) => Some(Err(IocEntrySearchError {
-                kind: "IO Error".to_string(),
-                message: format!("Cannot open registry {} for IOC id {}. Original error: {}",
-                                 search_parameter.key,
-                                 search_parameter.ioc_id,
-                                 err
-                ),
-            })),
+            Err(err) => {
+                error!("Registry search: Cannot open registry {} for IOC id {}. Original error: {}",
+                       search_parameter.key,
+                       search_parameter.ioc_id,
+                       err);
+                None
+            }
         }
     });
-    let results = ok_results.collect::<Vec<Result<IocEntrySearchResult, IocEntrySearchError>>>();
+    let results = ok_results.collect::<Vec<IocEntrySearchResult>>();
     if search_parameters.len() == results.len() {
-        info!("Found {} IOCs out of {} search parameters", results.len(), search_parameters.len());
+        info!("Registry search: Found {} IOCs out of {} search parameters", results.len(), search_parameters.len());
         return results;
     }
-    info!("Found only {} IOCs out of {} search parameters, starting deep search.", results.len(), search_parameters.len());
-    let found_ioc_entries = results.iter().filter_map(|result| result.as_ref().ok())
-        .map(|ok_res| ok_res.ioc_entry_id).collect::<HashSet<IocEntryId>>();
-    let remaining_search_parameters: Vec<RegistryParameters> = search_parameters
-        .into_iter()
-        .filter(|fp| !found_ioc_entries.contains(&fp.ioc_entry_id))
-        .collect();
-    let deep_results = deep_search(&remaining_search_parameters);
 
-    let final_results = results.into_iter().chain(deep_results.into_iter()).collect::<Vec<Result<IocEntrySearchResult, IocEntrySearchError>>>();
+    let found_ioc_entries = results.iter()
+        .map(|ok_res| ok_res.ioc_entry_id).collect::<HashSet<IocEntryId>>();
+
+    let deep_results = if deep_search_enabled {
+        info!("Registry search: Found only {} IOCs out of {} search parameters, starting deep search.", results.len(), search_parameters.len());
+        let remaining_search_parameters: Vec<RegistryParameters> = search_parameters
+            .into_iter()
+            .filter(|fp| !found_ioc_entries.contains(&fp.ioc_entry_id))
+            .collect();
+        deep_search(&remaining_search_parameters)
+    } else {
+        info!("Registry search: Found only {} IOCs out of {} search parameters, skipping deep search.", results.len(), search_parameters.len());
+        vec![]
+    };
+
+    let final_results = results.into_iter().chain(deep_results.into_iter()).collect::<Vec<IocEntrySearchResult>>();
     unsafe {
         let gp = drop_privileges(winapi::um::winnt::SE_TAKE_OWNERSHIP_NAME);
-        if gp.is_err() { error!("{}", gp.unwrap_err()) }
+        if gp.is_err() { error!("Registry search: {}", gp.unwrap_err()) }
     };
     return final_results;
 }
@@ -81,14 +87,23 @@ pub fn check_registry(search_parameters: Vec<RegistryParameters>) -> Vec<Result<
 #[cfg(windows)]
 fn open_registry(key: &str) -> Result<RegKey, std::io::Error> {
     let splitted_key: Vec<&str> = key.splitn(2, "\\").collect();
-    let root = splitted_key[0];
-    let path = splitted_key[1];
-    let hkey = predef_key_by_name(&root);
-    if hkey.is_none() {
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Cannot open {}", root)));
+    if splitted_key.len() == 1 {
+        let root = splitted_key[0];
+        let hkey = predef_key_by_name(&root);
+        if hkey.is_none() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Registry search: Cannot open {}", root)));
+        }
+        Ok(winreg::RegKey::predef(hkey.unwrap()))
+    } else {
+        let root = splitted_key[0];
+        let path = splitted_key[1];
+        let hkey = predef_key_by_name(&root);
+        if hkey.is_none() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Registry search: Cannot open {}", root)));
+        }
+        let registry_root = winreg::RegKey::predef(hkey.unwrap());
+        registry_root.open_subkey(path)
     }
-    let registry_root = winreg::RegKey::predef(hkey.unwrap());
-    registry_root.open_subkey(path)
 }
 
 #[cfg(windows)]
@@ -119,7 +134,7 @@ fn handle_key_rec(
     key: &RegKey,
     full_key_path: &str,
     search_parameters: &[RegistryParameters],
-    results: &mut Vec<Result<IocEntrySearchResult, IocEntrySearchError>>,
+    results: &mut Vec<IocEntrySearchResult>,
     found_search_parameters: &mut HashSet<usize>,
 ) {
     for sub_key_name in key.enum_keys() {
@@ -144,27 +159,19 @@ fn handle_key_rec(
                         });
                     }
                     Err(err) => {
-                        error!("{}", err);
-                        results.push(Err(IocEntrySearchError {
-                            kind: "Registry error".to_string(),
-                            message: format!("{}", err),
-                        }))
+                        error!("Registry search: {}", err);
                     }
                 }
             }
             Err(err) => {
-                error!("{}", err);
-                results.push(Err(IocEntrySearchError {
-                    kind: "Registry error".to_string(),
-                    message: format!("{}", err),
-                }))
+                error!("Registry search: {}", err);
             }
         }
     }
 }
 
 #[cfg(windows)]
-fn deep_search(search_parameters: &[RegistryParameters]) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+fn deep_search(search_parameters: &[RegistryParameters]) -> Vec<IocEntrySearchResult> {
     let hkeys = [(HKEY_CURRENT_USER, "HKEY_CURRENT_USER".to_string()),
         (HKEY_LOCAL_MACHINE, "HKEY_LOCAL_MACHINE".to_string()),
         (HKEY_CLASSES_ROOT, "HKEY_CLASSES_ROOT".to_string()),
@@ -178,13 +185,13 @@ fn deep_search(search_parameters: &[RegistryParameters]) -> Vec<Result<IocEntryS
     ];
 
     let mut found_file_parameters = HashSet::<usize>::new();
-    let mut result = Vec::<Result<IocEntrySearchResult, IocEntrySearchError>>::new();
+    let mut result = Vec::<IocEntrySearchResult>::new();
 
     for (hkey, hkey_name) in hkeys.iter() {
         if found_file_parameters.len() == search_parameters.len() {
             return result;
         }
-        debug!("Beginning deep search for {}", hkey_name);
+        debug!("Registry search: Beginning deep search for {}", hkey_name);
         handle_key_rec(&RegKey::predef(*hkey), hkey_name, search_parameters, &mut result, &mut found_file_parameters);
     }
 
@@ -192,7 +199,7 @@ fn deep_search(search_parameters: &[RegistryParameters]) -> Vec<Result<IocEntryS
 }
 
 #[cfg(windows)]
-fn check_by_value(search_parameter: &RegistryParameters, reg_entry: &winreg::RegKey) -> Option<Result<IocEntrySearchResult, IocEntrySearchError>> {
+fn check_by_value(search_parameter: &RegistryParameters, reg_entry: &winreg::RegKey) -> Option<IocEntrySearchResult> {
     let reg_value_str: Result<String, std::io::Error> = reg_entry.get_value(&search_parameter.value_name);
     let reg_value: String = match reg_value_str {
         Ok(reg_value_str) => reg_value_str,
@@ -206,12 +213,9 @@ fn check_by_value(search_parameter: &RegistryParameters, reg_entry: &winreg::Reg
                     let reg_value_u64: Result<u64, std::io::Error> = reg_entry.get_value(&search_parameter.value_name);
                     match reg_value_u64 {
                         Ok(reg_value_u64) => reg_value_u64.to_string(),
-
                         Err(err) => {
-                            return Some(Err(IocEntrySearchError {
-                                kind: "IO Error".to_string(),
-                                message: format!("Cannot read registry key {} with value {} due to {}", search_parameter.key, search_parameter.value_name, err),
-                            }));
+                            error!("Registry search: {}", err);
+                            "".to_string()
                         }
                     }
                 }
@@ -221,19 +225,29 @@ fn check_by_value(search_parameter: &RegistryParameters, reg_entry: &winreg::Reg
 
     return match &search_parameter.value {
         None => {
-            Some(Ok(IocEntrySearchResult {
+            info!("Registry search: Found reg key {}\\{} for IOC {}",
+                  search_parameter.key,
+                  search_parameter.value_name,
+                  search_parameter.ioc_id
+            );
+            Some(IocEntrySearchResult {
                 ioc_id: search_parameter.ioc_id,
                 ioc_entry_id: search_parameter.ioc_entry_id,
-                data: vec![format!("Found reg key {}\\{}", search_parameter.key, search_parameter.value_name)],
-            }))
+
+            })
         }
         Some(search_value) => {
             if search_value == &reg_value {
-                Some(Ok(IocEntrySearchResult {
+                info!("Registry search: Found reg key {}\\{} = {} for IOC {}",
+                      search_parameter.key,
+                      search_parameter.value_name,
+                      search_value,
+                      search_parameter.ioc_id
+                );
+                Some(IocEntrySearchResult {
                     ioc_id: search_parameter.ioc_id,
                     ioc_entry_id: search_parameter.ioc_entry_id,
-                    data: vec![format!("Registry {}\\{} == {}", search_parameter.key, search_parameter.value_name, search_value)],
-                }))
+                })
             } else {
                 None
             }
@@ -246,7 +260,7 @@ fn check_by_name(
     search_parameter: &RegistryParameters,
     reg_entry: &RegKey,
     reg_entry_name: &str,
-) -> Option<Result<IocEntrySearchResult, IocEntrySearchError>> {
+) -> Option<IocEntrySearchResult> {
     debug!("Checking registry keys {} and {} by match", search_parameter.key, reg_entry_name);
     if search_parameter.key.ends_with(reg_entry_name) {
         return check_by_value(search_parameter, reg_entry);
@@ -260,16 +274,13 @@ fn check_by_name_regex(
     search_parameter: &RegistryParameters,
     reg_entry: &RegKey,
     reg_entry_full_path: &str,
-) -> Option<Result<IocEntrySearchResult, IocEntrySearchError>> {
+) -> Option<IocEntrySearchResult> {
     debug!("Checking registry keys {} and {} by regex", search_parameter.key, reg_entry_full_path);
     let regex_path = Regex::new(reg_entry_full_path);
     if regex_path.is_err() {
         let err = format!("Cannot parse registry {} as regex: {}", reg_entry_full_path, regex_path.unwrap_err());
         error!("{}", err);
-        return Some(Err(IocEntrySearchError {
-            kind: "Regex Error".to_string(),
-            message: err,
-        }));
+        return None;
     }
     let regex_path = regex_path.unwrap();
 

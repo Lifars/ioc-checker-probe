@@ -12,6 +12,8 @@ pub struct Properties {
     pub server: String,
     pub auth_probe_name: String,
     pub auth_key: String,
+    pub deep_search: bool,
+    pub max_iocs: isize
 }
 
 impl Properties {
@@ -51,6 +53,8 @@ fn default_properties() -> Properties {
         server: "http://localhost:8080/".to_string(),
         auth_probe_name: "TESTING".to_string(),
         auth_key: "TESTING".to_string(),
+        deep_search: false,
+        max_iocs: 5000
     }
 }
 
@@ -66,6 +70,8 @@ fn write_default_if_not_exists() -> Result<(), std::io::Error> {
                     writer.write_all(b"server = \"http://localhost:8080/\"\n")?;
                     writer.write_all(b"auth_probe_name = \"TESTING\"\n")?;
                     writer.write_all(b"auth_key = \"TESTING\"")?;
+                    writer.write_all(b"deep_search = false")?;
+                    writer.write_all(b"max_iocs = 5000")?;
                     let write_result = writer.flush();
                     if write_result.is_err() {
                         error!("Cannot write default properties into file: {}", write_result.unwrap_err());

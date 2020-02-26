@@ -1,7 +1,5 @@
 use crate::data::{EvaluationPolicy, IocEntryId, IocId};
 use std::collections::HashMap;
-use serde::export::fmt::Display;
-use std::fmt::Formatter;
 
 #[derive(Clone)]
 pub struct IocEntryItem {
@@ -17,19 +15,6 @@ pub struct IocEntryItem {
 pub struct IocEntrySearchResult {
     pub ioc_id: IocId,
     pub ioc_entry_id: IocEntryId,
-    pub data: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct IocEntrySearchError {
-    pub kind: String,
-    pub message: String,
-}
-
-impl Display for IocEntrySearchError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "IocError(kind: {}, message: {})", self.kind, self.message)
-    }
 }
 
 pub struct IocEvaluator {
@@ -41,28 +26,23 @@ pub struct IocEvaluator {
 impl IocEvaluator {
     pub fn new(root_ioc_ids: HashMap<IocId, IocEntryId>,
                id_ioc_entries: HashMap<IocEntryId, IocEntryItem>,
-               founds: &[Result<IocEntrySearchResult, IocEntrySearchError>],
+               founds: &[IocEntrySearchResult],
     ) -> Self {
         let mut id_successful_founds_count: HashMap<IocEntryId, u32> = HashMap::new();
 
-        for result in founds {
-            match result {
-                Ok(result_value) => {
-                    let entry_id = &result_value.ioc_entry_id;
-                    debug!("Ioc entry {} enumerated", entry_id);
-                    let success_count = id_successful_founds_count.get(entry_id).cloned();
-                    match success_count {
-                        None => {
-                            debug!("Ioc entry {} checked 1 time so far", entry_id);
-                            id_successful_founds_count.insert(entry_id.clone(), 1);
-                        }
-                        Some(success_count) => {
-                            debug!("Ioc entry {} checked {} times so far", entry_id, success_count + 1);
-                            id_successful_founds_count.insert(entry_id.clone(), success_count + 1);
-                        }
-                    }
+        for result_value in founds {
+            let entry_id = &result_value.ioc_entry_id;
+            debug!("Ioc entry {} enumerated", entry_id);
+            let success_count = id_successful_founds_count.get(entry_id).cloned();
+            match success_count {
+                None => {
+                    debug!("Ioc entry {} checked 1 time so far", entry_id);
+                    id_successful_founds_count.insert(entry_id.clone(), 1);
                 }
-                Err(_) => {}
+                Some(success_count) => {
+                    debug!("Ioc entry {} checked {} times so far", entry_id, success_count + 1);
+                    id_successful_founds_count.insert(entry_id.clone(), success_count + 1);
+                }
             }
         };
 
@@ -95,7 +75,7 @@ impl IocEvaluator {
         &self,
         ioc_entry: &IocEntryItem,
     ) -> bool {
-        debug!("Evaluating IOC entry {}", ioc_entry.ioc_entry_id);
+//        debug!("Evaluating IOC entry {}", ioc_entry.ioc_entry_id);
         let evaluated_self = self.evaluate_without_offspring(ioc_entry);
         match evaluated_self {
             false => match ioc_entry.eval_policy {

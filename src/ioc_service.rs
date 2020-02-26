@@ -78,8 +78,8 @@ IocService for FileIocService<T> {
         let iocs: Vec<Ioc> = responses
             .flat_map(|it| it.iocs.into_iter())
             .collect();
-
-        Ok(GetIocResponse { release_datetime: None, iocs })
+        let total_iocs = iocs.len();
+        Ok(GetIocResponse { release_datetime: None, iocs, total_iocs })
     }
 
     fn report_results(&self, request: ReportUploadRequest) -> Result<(), IocServiceError> {
@@ -97,15 +97,17 @@ const REALM: &'static str = "IOC Server Probes";
 pub struct HttpIocService {
     url: String,
     authorization_header_value: String,
+    max_iocs: isize
 }
 
 impl HttpIocService {
     pub fn new(url: String,
                probe_name: String,
                api_key: String,
+               max_iocs: isize
     ) -> Self {
         let authorization_header_value = base64::encode(format!("{}:{}", probe_name, api_key).as_bytes());
-        HttpIocService { url, authorization_header_value }
+        HttpIocService { url, authorization_header_value, max_iocs }
     }
 }
 
@@ -121,29 +123,52 @@ fn http_client() -> Result<reqwest::blocking::Client, IocServiceError> {
 
 impl IocService for HttpIocService {
     fn receive_ioc(&self) -> Result<GetIocResponse, IocServiceError> {
-        let hours = 2;
-
         let client = http_client()?;
-        let url = format!("{}/api/probe/auth/get/ioc/{}", self.url.as_str(), hours).to_string();
-        let response: GetIocResponse = client.get(&url)
-            .header(header::AUTHORIZATION, format!("Basic {}", self.authorization_header_value.as_str()))
-            .header(header::WWW_AUTHENTICATE, format!("Basic REALM=\"{}\", charset=UTF-8", REALM))
-            .send()
-            .map_err(|err| IocServiceError {
-                kind: "HTTP Error".to_string(),
-                message: format!("{}", err),
-            })?
-            .json()
-            .map_err(|err| IocServiceError {
-                kind: "HTTP Error".to_string(),
-                message: format!("{}", err),
-            })?;
-        Ok(response)
+        let mut results = Vec::<Ioc>::new();
+        let mut page = 0;
+        loop {
+            let url = format!("{}/api/probe/auth/get/ioc/{}", self.url.as_str(), page).to_string();
+            let mut response: GetIocResponse = client.get(&url)
+                .header(header::AUTHORIZATION, format!("Basic {}", self.authorization_header_value.as_str()))
+                .header(header::WWW_AUTHENTICATE, format!("Basic REALM=\"{}\", charset=UTF-8", REALM))
+                .send()
+                .map_err(|err| IocServiceError {
+                    kind: "HTTP Error".to_string(),
+                    message: format!("{}", err),
+                })?
+                .json()
+                .map_err(|err| IocServiceError {
+                    kind: "HTTP Error".to_string(),
+                    message: format!("{}", err),
+                })?;
+
+            if response.iocs.is_empty() {
+                break;
+            } else {
+
+                results.append(&mut response.iocs)
+            }
+            info!("Loaded {} out of {} IOCs, limit {}",
+                  results.len(),
+                  response.total_iocs,
+                  self.max_iocs
+            );
+            page += 1;
+
+            if self.max_iocs > -1 {
+                if results.len() >= self.max_iocs as usize {
+                    break;
+                }
+            }
+        }
+        let total_iocs = results.len();
+        Ok(GetIocResponse { release_datetime: None, iocs: results, total_iocs })
     }
 
     fn report_results(&self, request: ReportUploadRequest) -> Result<(), IocServiceError> {
         let client = http_client()?;
         let url = format!("{}/api/probe/auth/post/ioc/result", self.url.as_str()).to_string();
+
         client.post(&url)
             .header(header::AUTHORIZATION, format!("Basic {}", self.authorization_header_value.as_str()))
             .header(header::WWW_AUTHENTICATE, format!("Basic REALM=\"{}\", charset=UTF-8", REALM))

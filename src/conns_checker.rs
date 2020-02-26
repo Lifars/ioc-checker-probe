@@ -1,5 +1,5 @@
 use crate::data::{IocEntryId, SearchType, IocId};
-use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
+use crate::ioc_evaluator::IocEntrySearchResult;
 use self::netstat::ProtocolSocketInfo;
 use regex::Regex;
 
@@ -17,12 +17,12 @@ struct ConnectionParametersRegexed {
     regex: Option<Regex>,
 }
 
-pub fn check_conns(search_parameters: Vec<ConnectionParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_conns(search_parameters: Vec<ConnectionParameters>) -> Vec<IocEntrySearchResult> {
     if search_parameters.is_empty() {
         return vec![]
     }
-    info!("Searching IOCs using open network connection search.");
-    let mut result: Vec<Result<IocEntrySearchResult, IocEntrySearchError>> = Vec::new();
+    info!("Connection search: Searching IOCs using open network connection search.");
+    let mut result: Vec<IocEntrySearchResult> = Vec::new();
     let search_parameters: Vec<ConnectionParametersRegexed> = search_parameters.into_iter().filter_map(|sp| {
         match sp.search {
             SearchType::Exact => Some(ConnectionParametersRegexed { conn_param: sp, regex: None }),
@@ -30,14 +30,7 @@ pub fn check_conns(search_parameters: Vec<ConnectionParameters>) -> Vec<Result<I
                 match Regex::new(&sp.name) {
                     Ok(regex) => Some(ConnectionParametersRegexed { conn_param: sp, regex: Some(regex) }),
                     Err(err) => {
-                        error!("{}", err);
-                        result.push(Err(IocEntrySearchError {
-                            kind: "Regex ERROR".to_string(),
-                            message: format!("Cannot parse \"{}\" as regex. IOC id {}. Original error: {}",
-                                             sp.name,
-                                             sp.ioc_id,
-                                             err),
-                        }));
+                        error!("Connection search: {}", err);
                         None
                     }
                 }
@@ -51,25 +44,25 @@ pub fn check_conns(search_parameters: Vec<ConnectionParameters>) -> Vec<Result<I
     netstat::get_sockets_info(
         af_flags,
         proto_flags,
-    ).unwrap().iter().for_each(|socket| {
-        match &socket.protocol_socket_info {
-            ProtocolSocketInfo::Udp(_) => {}
-            ProtocolSocketInfo::Tcp(socket) => {
-                let local_address = &socket.local_addr;
+    ).unwrap().iter()
+        .filter_map(|socket|
+            match &socket.protocol_socket_info {
+                ProtocolSocketInfo::Tcp(tcp_socket) => Some(tcp_socket),
+                ProtocolSocketInfo::Udp(_) => None,
+            }
+        )
+        .filter(|socket| !socket.remote_addr.is_loopback())
+        .filter(|socket| !socket.remote_addr.is_unspecified())
+        .for_each(|socket| {
                 let remote_address = &socket.remote_addr;
-                let local_address_name = dns_lookup::lookup_addr(local_address);
                 let remote_address_name = dns_lookup::lookup_addr(remote_address);
 
                 search_parameters.iter().for_each(|sp| {
-                    if local_address_name.is_ok() {
-                        check_item(local_address_name.as_ref().unwrap(), sp, &mut result)
-                    }
                     if remote_address_name.is_ok() {
+                        debug!("Connection search: Checking address {} for IOC {}", remote_address_name.as_ref().unwrap(), &sp.conn_param.name);
                         check_item(remote_address_name.as_ref().unwrap(), sp, &mut result)
                     }
                 });
-            }
-        }
     });
     result
 }
@@ -77,17 +70,20 @@ pub fn check_conns(search_parameters: Vec<ConnectionParameters>) -> Vec<Result<I
 fn check_item(
     address_name: &String,
     sp: &ConnectionParametersRegexed,
-    result: &mut Vec<Result<IocEntrySearchResult, IocEntrySearchError>>,
+    result: &mut Vec<IocEntrySearchResult>,
 ) {
     let matches = match &sp.regex {
         None => &sp.conn_param.name == address_name,
         Some(regex) => regex.is_match(address_name),
     };
     if matches {
-        result.push(Ok(IocEntrySearchResult {
+        info!("Connection search: Found connection {} for IOC {}",
+              address_name.clone(),
+              sp.conn_param.ioc_id
+        );
+        result.push(IocEntrySearchResult {
             ioc_id: sp.conn_param.ioc_id,
             ioc_entry_id: sp.conn_param.ioc_entry_id,
-            data: vec![format!("Open conn {}",address_name.clone())],
-        }));
+        });
     }
 }

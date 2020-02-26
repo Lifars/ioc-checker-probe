@@ -7,7 +7,7 @@ use std::ffi::CString;
 use std::ptr;
 #[cfg(windows)]
 use winapi::ctypes::c_void;
-use crate::ioc_evaluator::{IocEntrySearchResult, IocEntrySearchError};
+use crate::ioc_evaluator::IocEntrySearchResult;
 #[cfg(windows)]
 use crate::windows_bindings::PoolType;
 #[cfg(windows)]
@@ -112,11 +112,10 @@ pub struct MutexParameters {
 }
 
 #[cfg(windows)]
-pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
-    if search_parameters.is_empty() { return vec![] }
-    info!("Searching IOCs using open mutex search.");
-    let mut ioc_results = Vec::<Result<IocEntrySearchResult, IocEntrySearchError>>::new();
-    let mut errors = Vec::<String>::new();
+pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySearchResult> {
+    if search_parameters.is_empty() { return vec![]; }
+    info!("Mutex search: Searching IOCs using open mutex search.");
+    let mut ioc_results = Vec::<IocEntrySearchResult>::new();
     unsafe {
         let ntdll_name = CString::new("ntdll.dll").unwrap();
         let ntdll = winapi::um::libloaderapi::GetModuleHandleA(ntdll_name.as_ptr());
@@ -125,10 +124,9 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
         let farproc = winapi::um::libloaderapi::GetProcAddress(ntdll, function_name.as_ptr());
         let query_system_information_fn = std::mem::transmute::<winapi::shared::minwindef::FARPROC, NtQuerySystemInformation>(farproc);
         if query_system_information_fn.is_none() {
-            let err = format!("Cannot load function NtQuerySystemInformation");
+            let err = format!("Mutex search: Cannot load function NtQuerySystemInformation");
             error!("{}", err);
-            errors.push(err);
-            return process_results(&search_parameters, ioc_results, errors);
+            return ioc_results;
         }
         let query_system_information_fn = query_system_information_fn.unwrap();
 
@@ -136,10 +134,9 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
         let farproc = winapi::um::libloaderapi::GetProcAddress(ntdll, function_name.as_ptr());
         let query_object_fn = std::mem::transmute::<winapi::shared::minwindef::FARPROC, NtQueryObject>(farproc);
         if query_object_fn.is_none() {
-            let err = format!("Cannot load function NtQueryObject");
+            let err = format!("Mutex search: Cannot load function NtQueryObject");
             error!("{}", err);
-            errors.push(err);
-            return process_results(&search_parameters, ioc_results, errors);
+            return ioc_results;
         }
         let query_object_fn = query_object_fn.unwrap();
 
@@ -147,15 +144,17 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
         let farproc = winapi::um::libloaderapi::GetProcAddress(ntdll, function_name.as_ptr());
         let duplicate_object_fn = std::mem::transmute::<winapi::shared::minwindef::FARPROC, NtDuplicateObject>(farproc);
         if duplicate_object_fn.is_none() {
-            let err = format!("Cannot load function NtDuplicateObject");
+            let err = format!("Mutex search: Cannot load function NtDuplicateObject");
             error!("{}", err);
-            errors.push(err);
-            return process_results(&search_parameters, ioc_results, errors);
+            return ioc_results;
         }
         let duplicate_object_fn = duplicate_object_fn.unwrap();
 
         let gp = get_privileges(winapi::um::winnt::SE_DEBUG_NAME);
-        if gp.is_err() { error!("{}", gp.unwrap_err()) }
+        if gp.is_err() {
+            error!("{}", gp.unwrap_err());
+            return vec![];
+        }
 
         let mut buffer_length = 1000usize;
 
@@ -236,9 +235,8 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
                                object_type_info as *mut c_void,
                                return_length,
                                &mut ret) != 0 {
-                let err = format!("NtQueryObject failed, error code {}", winapi::um::errhandlingapi::GetLastError());
+                let err = format!("Mutex search: NtQueryObject failed, error code {}", winapi::um::errhandlingapi::GetLastError());
                 error!("{}", err);
-                errors.push(err);
                 winapi::um::handleapi::CloseHandle(dup_handle);
                 winapi::um::handleapi::CloseHandle(process_handle);
             }
@@ -280,9 +278,8 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
                 return_length,
                 ptr::null_mut(),
             ) != 0 {
-                let err = format!("Fetch name failed");
+                let err = format!("Mutex search: Fetch name failed");
                 error!("{}", err);
-                errors.push(err);
                 winapi::um::memoryapi::VirtualFree(
                     object_name_info,
                     0,
@@ -299,11 +296,13 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
                 search_parameters.iter()
                     .filter(|search_parameter| {
                         ss.contains(&search_parameter.data)
-                    }).for_each(|search_parameter| ioc_results.push(Ok(IocEntrySearchResult {
-                    ioc_id: search_parameter.ioc_id,
-                    ioc_entry_id: search_parameter.ioc_entry_id,
-                    data: vec![format!("Mutex {}", ss)],
-                })));
+                    }).for_each(|search_parameter| {
+                    info!("Mutex search: Found mutex {} for IOC {}", ss, search_parameter.ioc_id);
+                    ioc_results.push(IocEntrySearchResult {
+                        ioc_id: search_parameter.ioc_id,
+                        ioc_entry_id: search_parameter.ioc_entry_id,
+                    })
+                });
             }
             winapi::um::memoryapi::VirtualFree(
                 object_type_info as *mut c_void,
@@ -326,21 +325,11 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocE
         let gp = drop_privileges(winapi::um::winnt::SE_DEBUG_NAME);
         if gp.is_err() { error!("{}", gp.unwrap_err()) }
     }
-    process_results(&search_parameters, ioc_results, errors)
-}
-
-fn process_results(search_parameters: &Vec<MutexParameters>, mut ioc_results: Vec<Result<IocEntrySearchResult, IocEntrySearchError>>, errors: Vec<String>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
-    if !search_parameters.is_empty() {
-        errors.into_iter().for_each(|error| ioc_results.push(Err(IocEntrySearchError {
-            kind: "Win32 Error".to_string(),
-            message: error,
-        })));
-    }
     ioc_results
 }
 
 #[cfg(not(windows))]
-pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<Result<IocEntrySearchResult, IocEntrySearchError>> {
+pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySearchResult> {
     return vec![];
 }
 

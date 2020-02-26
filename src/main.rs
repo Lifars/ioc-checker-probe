@@ -10,12 +10,12 @@ extern crate winreg;
 
 use simplelog::*;
 use std::fs::File;
-use crate::data::{IocEntry, IocSearchResult, IocSearchError, ReportUploadRequest, IocEntryId, GetIocResponse, Ioc, IocId};
+use crate::data::{IocEntry, ReportUploadRequest, IocEntryId, GetIocResponse, Ioc, IocId};
 use crate::file_checker::FileParameters;
 use crate::arg_parser::parsed_args;
 use crate::properties::Properties;
 use crate::ioc_service::{FileIocService, IocService, HttpIocService};
-use crate::ioc_evaluator::{IocEvaluator, IocEntryItem, IocEntrySearchError, IocEntrySearchResult};
+use crate::ioc_evaluator::{IocEvaluator, IocEntryItem, IocEntrySearchResult};
 use std::collections::HashMap;
 use crate::dns_checker::DnsParameters;
 use crate::mutant_checker::MutexParameters;
@@ -178,6 +178,7 @@ fn walk_ioc_entries(
             data: mutex_info.name,
         })
     }
+
     if ioc_entry.conns_check.is_some() {
         checks_specified += 1;
         let conns_info = ioc_entry.conns_check.clone().unwrap();
@@ -233,6 +234,7 @@ fn run_checker(program_properties: &Properties) {
         program_properties.server.clone(),
         program_properties.auth_probe_name.clone(),
         program_properties.auth_key.clone(),
+        program_properties.max_iocs
     );
 
     // Get the file ioc defs
@@ -243,7 +245,7 @@ fn run_checker(program_properties: &Properties) {
     } else {
         info!("One or multiple IOC definitions specified.");
         let ioc_response = file_ioc_service.receive_ioc();
-        ioc_response.unwrap_or(GetIocResponse { release_datetime: None, iocs: vec![] }).iocs
+        ioc_response.unwrap_or(GetIocResponse { release_datetime: None, iocs: vec![], total_iocs: 0 }).iocs
     };
     info!("Loaded {} IOC definitions from file", ioc_from_file.len());
 
@@ -295,20 +297,21 @@ fn run_checker(program_properties: &Properties) {
         &mut cert_parameters,
     );
 
+    let deep_search_enabled = program_properties.deep_search;
     // Run checkers
     ////////////////////////////////////////////////////////////////////////////
 
-    let file_check_results = file_checker::check_files(file_parameters);
     let dns_check_results = dns_checker::check_dns(dns_parameters);
     let mutex_check_results = mutant_checker::check_mutexes(mutex_parameters);
-    let registry_check_results = registry_checker::check_registry(registry_parameters);
+    let registry_check_results = registry_checker::check_registry(registry_parameters, deep_search_enabled);
     let conns_check_results = conns_checker::check_conns(conns_parameters);
     let proc_check_results = process_checker::check_processes(proc_parameters);
     let cert_check_results = cert_checker::check_certs(cert_parameters);
+    let file_check_results = file_checker::check_files(file_parameters, deep_search_enabled);
 
     // Combine results
     ////////////////////////////////////////////////////////////////////////////
-    let all_results: Vec<Result<IocEntrySearchResult, IocEntrySearchError>> =
+    let all_results: Vec<IocEntrySearchResult> =
         file_check_results.into_iter()
             .chain(dns_check_results.into_iter())
             .chain(mutex_check_results.into_iter())
@@ -327,36 +330,19 @@ fn run_checker(program_properties: &Properties) {
         &all_results,
     );
     let evaluated_iocs: Vec<IocId> = evaluator.evaluate();
-    let all_results_dto: Vec<Result<IocSearchResult, IocSearchError>> = all_results.into_iter()
-        .map(|ioc_result| {
-            match ioc_result {
-                Ok(res) => {
-                    Ok(
-                        IocSearchResult {
-                            ioc_id: res.ioc_id,
-                            data: res.data,
-                        }
-                    )
-                }
-                Err(err) => {
-                    Err(IocSearchError {
-                        kind: err.kind,
-                        message: err.message,
-                    })
-                }
-            }
-        })
-        .collect();
 
-    let upload_request = ReportUploadRequest::new(all_results_dto, evaluated_iocs);
+    let upload_request = ReportUploadRequest::new(evaluated_iocs);
+    info!("Found {} IOCs out of {}",
+          upload_request.found_iocs.len(),
+          iocs.len()
+    );
+    let report_response = file_ioc_service.report_results(upload_request.clone());
+    match report_response {
+        Ok(_) => { info!("Report saved") }
+        Err(error) => { error!("Cannot save report: {}", error) }
+    }
     match args.local_mode {
-        true => {
-            let report_response = file_ioc_service.report_results(upload_request);
-            match report_response {
-                Ok(_) => { info!("Report saved") }
-                Err(error) => { error!("Cannot save report: {}", error) }
-            }
-        }
+        true => {}
         false => {
             let report_response = http_ioc_service.report_results(upload_request);
             match report_response {
