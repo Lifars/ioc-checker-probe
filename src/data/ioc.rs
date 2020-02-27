@@ -143,6 +143,7 @@ pub struct GetIocResponse
     #[serde(default)]
     pub release_datetime: Option<DateTime<Utc>>,
     pub iocs: Vec<Ioc>,
+    #[serde(default)]
     pub total_iocs: usize
 }
 

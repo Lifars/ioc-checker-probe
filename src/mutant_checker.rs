@@ -12,6 +12,7 @@ use crate::ioc_evaluator::IocEntrySearchResult;
 use crate::windows_bindings::PoolType;
 #[cfg(windows)]
 use crate::priv_esca::{drop_privileges, get_privileges};
+use winapi::ctypes::c_int;
 
 #[cfg(windows)]
 #[repr(C)]
@@ -78,17 +79,17 @@ type NtQuerySystemInformation = Option<extern "system" fn(
 #[cfg(windows)]
 #[allow(dead_code)]
 enum ObjectInformationClass {
-    ObjectBasicInformation,
-    ObjectNameInformation,
-    ObjectTypeInformation,
-    ObjectAllInformation,
-    ObjectDataInformation,
+    ObjectBasicInformation = 0,
+    ObjectNameInformation = 1,
+    ObjectTypeInformation = 2,
+//    ObjectAllInformation,
+//    ObjectDataInformation,
 }
 
 #[cfg(windows)]
 type NtQueryObject = Option<extern "system" fn(
     handle: winapi::shared::ntdef::HANDLE,
-    object_information_class: ObjectInformationClass,
+    object_information_class: c_int,
     object_information: winapi::shared::ntdef::PVOID,
     object_information_length: winapi::shared::minwindef::ULONG,
     return_length: winapi::shared::minwindef::PULONG,
@@ -99,7 +100,7 @@ type NtDuplicateObject = Option<extern "system" fn(
     source_process_handle: winapi::shared::ntdef::HANDLE,
     source_handle: winapi::shared::ntdef::HANDLE,
     target_process_handle: winapi::shared::ntdef::HANDLE,
-    target_handle: winapi::shared::ntdef::HANDLE,
+    target_handle: *mut winapi::shared::ntdef::HANDLE,
     desired_access: winapi::um::winnt::ACCESS_MASK,
     attributes: winapi::shared::minwindef::ULONG,
     options: winapi::shared::minwindef::ULONG,
@@ -152,7 +153,7 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
 
         let gp = get_privileges(winapi::um::winnt::SE_DEBUG_NAME);
         if gp.is_err() {
-            error!("{}", gp.unwrap_err());
+            error!("Mutex check: {}, rerun as admin.", gp.unwrap_err());
             return vec![];
         }
 
@@ -186,6 +187,7 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
                 winapi::um::winnt::PAGE_READWRITE,
             ) as *mut SystemHandleInformation;
         }
+        let mutant_string = widestring::WideString::from("Mutant".to_string());
         for i in 0..((*shi).number_of_handles as usize) {
             let handle: *mut SystemHandle = (*shi).handles.as_mut_ptr().add(i);
             let handle_val = (*handle).handle;
@@ -198,12 +200,12 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
             if process_handle.is_null() {
                 continue;
             }
-            let dup_handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
+            let mut dup_handle: winapi::shared::ntdef::HANDLE = ptr::null_mut();
             let dup_result = duplicate_object_fn(
                 process_handle,
                 handle_val as *mut c_void,
                 winapi::um::processthreadsapi::GetCurrentProcess(),
-                dup_handle,
+                &mut dup_handle,
                 0,
                 0,
                 0,
@@ -216,11 +218,19 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
             return_length = 0u32;
             query_object_fn(
                 dup_handle,
-                ObjectInformationClass::ObjectTypeInformation,
+                ObjectInformationClass::ObjectTypeInformation as c_int,
                 ptr::null_mut(),
                 0,
                 &mut return_length,
             );
+            let err_code = winapi::um::errhandlingapi::GetLastError();
+            if err_code != 0 {
+                let err = format!("Mutex search: NtQueryObject failed, error code {}", err_code);
+                debug!("{}", err);
+                winapi::um::handleapi::CloseHandle(dup_handle);
+                winapi::um::handleapi::CloseHandle(process_handle);
+                continue;
+            }
 
             let object_type_info = winapi::um::memoryapi::VirtualAlloc(
                 ptr::null_mut(),
@@ -230,22 +240,26 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
             ) as *mut ObjectTypeInformation;
 
             let mut ret = 0u32;
-            if query_object_fn(dup_handle,
-                               ObjectInformationClass::ObjectTypeInformation,
-                               object_type_info as *mut c_void,
-                               return_length,
-                               &mut ret) != 0 {
-                let err = format!("Mutex search: NtQueryObject failed, error code {}", winapi::um::errhandlingapi::GetLastError());
+            let query_object_fn_return_code = query_object_fn(dup_handle,
+                                                              ObjectInformationClass::ObjectTypeInformation as c_int,
+                                                              object_type_info as *mut c_void,
+                                                              return_length,
+                                                              &mut ret);
+            if query_object_fn_return_code != 0 {
+                let err = format!("Mutex search: NtQueryObject failed with error 0x{:X}, system error code {}",
+                                  query_object_fn_return_code,
+                                  winapi::um::errhandlingapi::GetLastError());
                 error!("{}", err);
                 winapi::um::handleapi::CloseHandle(dup_handle);
                 winapi::um::handleapi::CloseHandle(process_handle);
+                continue;
             }
 
             let ws = widestring::WideString::from_ptr(
                 (*object_type_info).name.Buffer,
                 (*object_type_info).name.Length as usize,
             );
-            if ws != widestring::WideString::from("Mutant".to_string()) {
+            if &ws.as_slice()[..6] != mutant_string.as_slice() {
                 winapi::um::memoryapi::VirtualFree(
                     object_type_info as *mut c_void,
                     0,
@@ -258,7 +272,7 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
 
             query_object_fn(
                 dup_handle,
-                ObjectInformationClass::ObjectTypeInformation,
+                ObjectInformationClass::ObjectNameInformation as c_int,
                 ptr::null_mut(),
                 0,
                 &mut return_length,
@@ -271,14 +285,16 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
                 winapi::um::winnt::PAGE_READWRITE,
             );
 
-            if query_object_fn(
-                dup_handle,
-                ObjectInformationClass::ObjectNameInformation,
-                object_name_info,
-                return_length,
-                ptr::null_mut(),
-            ) != 0 {
-                let err = format!("Mutex search: Fetch name failed");
+            let query_object_fn_return_code =
+                query_object_fn(
+                    dup_handle,
+                    ObjectInformationClass::ObjectNameInformation as c_int,
+                    object_name_info,
+                    return_length,
+                    ptr::null_mut(),
+                );
+            if query_object_fn_return_code != 0 {
+                let err = format!("Mutex search: Fetch name failed with code 0x{:X}", query_object_fn_return_code);
                 error!("{}", err);
                 winapi::um::memoryapi::VirtualFree(
                     object_name_info,
@@ -287,6 +303,7 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
                 );
                 winapi::um::handleapi::CloseHandle(dup_handle);
                 winapi::um::handleapi::CloseHandle(process_handle);
+                continue;
             }
 
             let name = object_name_info as winapi::shared::ntdef::PUNICODE_STRING;
@@ -295,7 +312,7 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
                 let ss = wss.to_string_lossy(); // Beware possible data loss.
                 search_parameters.iter()
                     .filter(|search_parameter| {
-                        ss.contains(&search_parameter.data)
+                        ss.starts_with(&search_parameter.data)
                     }).for_each(|search_parameter| {
                     info!("Mutex search: Found mutex {} for IOC {}", ss, search_parameter.ioc_id);
                     ioc_results.push(IocEntrySearchResult {
