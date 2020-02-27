@@ -12,7 +12,7 @@ use simplelog::*;
 use std::fs::File;
 use crate::data::{IocEntry, ReportUploadRequest, IocEntryId, GetIocResponse, Ioc, IocId};
 use crate::file_checker::FileParameters;
-use crate::arg_parser::parsed_args;
+use crate::arg_parser::{parsed_args, ParsedArgs};
 use crate::properties::Properties;
 use crate::ioc_service::{FileIocService, IocService, HttpIocService};
 use crate::ioc_evaluator::{IocEvaluator, IocEntryItem, IocEntrySearchResult};
@@ -67,6 +67,7 @@ fn setup_logger() {
 }
 
 fn walk_iocs(
+    args: &ParsedArgs,
     root_ioc_entries: &mut HashMap<IocId, IocEntryId>,
     iocs: &Vec<Ioc>,
     ioc_entries: &mut HashMap<IocEntryId, IocEntryItem>,
@@ -83,6 +84,7 @@ fn walk_iocs(
         id_gen = id_gen + 1;
         root_ioc_entries.insert(ioc.id.clone(), id_gen.clone());
         walk_ioc_entries(
+            args,
             &ioc.definition,
             ioc.id,
             root_ioc_entries,
@@ -101,6 +103,7 @@ fn walk_iocs(
 
 // Basicaly BFS
 fn walk_ioc_entries(
+    args: &ParsedArgs,
     ioc_entry: &IocEntry,
     ioc_root_id: IocId,
     root_ioc_entries: &mut HashMap<IocEntryId, IocId>,
@@ -117,7 +120,7 @@ fn walk_ioc_entries(
     let offspring = ioc_entry.offspring.as_ref();
     let mut checks_specified = 0u32;
 
-    if ioc_entry.certs_check.is_some() {
+    if ioc_entry.certs_check.is_some() && args.cert_check {
         checks_specified += 1;
         let cert_info = ioc_entry.certs_check.clone().unwrap();
         cert_parameters.push(CertificateParameters {
@@ -126,7 +129,7 @@ fn walk_ioc_entries(
             name: cert_info.name,
         })
     }
-    if ioc_entry.file_check.is_some() {
+    if ioc_entry.file_check.is_some() && args.file_check {
         checks_specified += 1;
         let file_info = ioc_entry.file_check.clone().unwrap();
         file_parameters.push(FileParameters {
@@ -137,7 +140,7 @@ fn walk_ioc_entries(
             hash: file_info.hash,
         });
     }
-    if ioc_entry.registry_check.is_some() {
+    if ioc_entry.registry_check.is_some() && args.registry_check {
         checks_specified += 1;
         let registry_info = ioc_entry.registry_check.clone().unwrap();
         registry_parameters.push(RegistryParameters {
@@ -149,7 +152,7 @@ fn walk_ioc_entries(
             value: registry_info.value,
         })
     }
-    if ioc_entry.dns_check.is_some() {
+    if ioc_entry.dns_check.is_some() && args.dns_check {
         checks_specified += 1;
         let dns_info = ioc_entry.dns_check.clone().unwrap();
         dns_parameters.push(DnsParameters {
@@ -158,7 +161,7 @@ fn walk_ioc_entries(
             name: dns_info.name,
         })
     }
-    if ioc_entry.process_check.is_some() {
+    if ioc_entry.process_check.is_some() && args.process_check {
         checks_specified += 1;
         let proc_info = ioc_entry.process_check.clone().unwrap();
         process_parameters.push(ProcessParameters {
@@ -169,7 +172,7 @@ fn walk_ioc_entries(
             hash: proc_info.hash,
         })
     }
-    if ioc_entry.mutex_check.is_some() {
+    if ioc_entry.mutex_check.is_some() && args.mutex_check {
         checks_specified += 1;
         let mutex_info = ioc_entry.mutex_check.clone().unwrap();
         mutex_parameters.push(MutexParameters {
@@ -179,7 +182,7 @@ fn walk_ioc_entries(
         })
     }
 
-    if ioc_entry.conns_check.is_some() {
+    if ioc_entry.conns_check.is_some() && args.conn_check {
         checks_specified += 1;
         let conns_info = ioc_entry.conns_check.clone().unwrap();
         conns_parameters.push(ConnectionParameters {
@@ -189,10 +192,6 @@ fn walk_ioc_entries(
             name: conns_info.name,
         })
     }
-
-    let file_info = &ioc_entry.file_check;
-    if file_info.is_some() {}
-
 
     let entry_item = IocEntryItem {
         ioc_entry_id: *id_gen,
@@ -205,6 +204,7 @@ fn walk_ioc_entries(
                 *id_gen = *id_gen + 1;
                 let this_child_id = id_gen.clone();
                 walk_ioc_entries( // Rekurzia fuj.
+                                  args,
                                   child,
                                   ioc_root_id,
                                   root_ioc_entries,
@@ -234,7 +234,7 @@ fn run_checker(program_properties: &Properties) {
         program_properties.server.clone(),
         program_properties.auth_probe_name.clone(),
         program_properties.auth_key.clone(),
-        program_properties.max_iocs
+        program_properties.max_iocs,
     );
 
     // Get the file ioc defs
@@ -285,6 +285,7 @@ fn run_checker(program_properties: &Properties) {
     let mut proc_parameters: Vec<ProcessParameters> = Vec::new();
     let mut cert_parameters: Vec<CertificateParameters> = Vec::new();
     walk_iocs(
+        &args,
         &mut root_ioc_entries,
         &iocs,
         &mut ioc_entries,
@@ -301,13 +302,13 @@ fn run_checker(program_properties: &Properties) {
     // Run checkers
     ////////////////////////////////////////////////////////////////////////////
 
-    let dns_check_results = dns_checker::check_dns(dns_parameters);
-    let mutex_check_results = mutant_checker::check_mutexes(mutex_parameters);
-    let registry_check_results = registry_checker::check_registry(registry_parameters, deep_search_enabled);
-    let conns_check_results = conns_checker::check_conns(conns_parameters);
-    let proc_check_results = process_checker::check_processes(proc_parameters);
-    let cert_check_results = cert_checker::check_certs(cert_parameters);
-    let file_check_results = file_checker::check_files(file_parameters, deep_search_enabled);
+    let dns_check_results = if args.dns_check { dns_checker::check_dns(dns_parameters) } else { vec![] };
+    let cert_check_results = if args.cert_check { cert_checker::check_certs(cert_parameters) } else { vec![] };
+    let proc_check_results = if args.process_check { process_checker::check_processes(proc_parameters) } else { vec![] };
+    let mutex_check_results = if args.mutex_check { mutant_checker::check_mutexes(mutex_parameters) } else { vec![] };
+    let registry_check_results = if args.registry_check { registry_checker::check_registry(registry_parameters, deep_search_enabled) } else { vec![] };
+    let conns_check_results = if args.conn_check { conns_checker::check_conns(conns_parameters) } else { vec![] };
+    let file_check_results = if args.file_check { file_checker::check_files(file_parameters, deep_search_enabled) } else { vec![] };
 
     // Combine results
     ////////////////////////////////////////////////////////////////////////////
