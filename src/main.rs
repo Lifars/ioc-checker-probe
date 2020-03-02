@@ -23,6 +23,7 @@ use crate::registry_checker::RegistryParameters;
 use crate::conns_checker::ConnectionParameters;
 use crate::process_checker::ProcessParameters;
 use crate::cert_checker::CertificateParameters;
+use crate::logo::print_logo;
 
 #[cfg(windows)]
 mod windows_bindings;
@@ -45,9 +46,11 @@ mod process_checker;
 mod conns_checker;
 mod cert_checker;
 mod dir_resolver;
+mod logo;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger();
+    print_logo();
     let program_properties = Properties::new();
     info!("Loaded properties");
     debug!("IOC server is at {}", program_properties.server);
