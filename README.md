@@ -1,8 +1,14 @@
+IOC Checker Probe
+=================
+
+Build
+------
+
 Release build 
 
 `cargo build --release`
 
-Strip symbols from binary (make sure the MinGW's *bin* folder is in *Path*)
+You can also strip symbols from binary to reduce the size to approx. one half (make sure the GCC/MinGW's *bin* folder is in *Path*)
 
 `strip target/release/ioc-checker-probe.exe`
 
@@ -30,7 +36,8 @@ xargo build --target x86_64-pc-windows-gnu --release
 ```
 Be sure to replace the value of `--target` parameter with your *host* value.
 
-### Running
+Running
+-------
 
 #### Online mode
 
