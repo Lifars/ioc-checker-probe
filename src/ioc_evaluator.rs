@@ -15,6 +15,7 @@ pub struct IocEntryItem {
 pub struct IocEntrySearchResult {
     pub ioc_id: IocId,
     pub ioc_entry_id: IocEntryId,
+    pub description: String,
 }
 
 pub struct IocEvaluator {

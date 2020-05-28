@@ -314,10 +314,12 @@ pub fn check_mutexes(search_parameters: Vec<MutexParameters>) -> Vec<IocEntrySea
                     .filter(|search_parameter| {
                         ss.starts_with(&search_parameter.data)
                     }).for_each(|search_parameter| {
-                    info!("Mutex search: Found mutex {} for IOC {}", ss, search_parameter.ioc_id);
+                    let message = format!("Mutex search: Found mutex {} for IOC {}", ss, search_parameter.ioc_id);
+                    info!("{}", message);
                     ioc_results.push(IocEntrySearchResult {
                         ioc_id: search_parameter.ioc_id,
                         ioc_entry_id: search_parameter.ioc_entry_id,
+                        description: message
                     })
                 });
             }

@@ -10,7 +10,7 @@ extern crate winreg;
 
 use simplelog::*;
 use std::fs::File;
-use crate::data::{IocEntry, ReportUploadRequest, IocEntryId, GetIocResponse, Ioc, IocId};
+use crate::data::{IocEntry, ReportUploadRequest, IocEntryId, GetIocResponse, Ioc, IocId, PrettyReport, PrettyReportList};
 use crate::file_checker::FileParameters;
 use crate::arg_parser::{parsed_args, ParsedArgs};
 use crate::properties::Properties;
@@ -24,6 +24,8 @@ use crate::conns_checker::ConnectionParameters;
 use crate::process_checker::ProcessParameters;
 use crate::cert_checker::CertificateParameters;
 use crate::logo::print_logo;
+use chrono::Local;
+use std::io::{Write};
 
 #[cfg(windows)]
 mod windows_bindings;
@@ -63,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn setup_logger() {
     CombinedLogger::init(
         vec![
-            TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed).unwrap(),
+            TermLogger::new(LevelFilter::Debug, Config::default(), TerminalMode::Mixed).unwrap(),
             WriteLogger::new(LevelFilter::Debug, Config::default(), File::create("ioc.log").unwrap()),
         ]
     ).unwrap();
@@ -335,24 +337,85 @@ fn run_checker(program_properties: &Properties) {
     );
     let evaluated_iocs: Vec<IocId> = evaluator.evaluate();
 
-    let upload_request = ReportUploadRequest::new(evaluated_iocs);
+    let upload_request = ReportUploadRequest::new(evaluated_iocs.clone());
     info!("Found {} IOCs out of {}",
           upload_request.found_iocs.len(),
           iocs.len()
     );
-    let report_response = file_ioc_service.report_results(upload_request.clone());
-    match report_response {
-        Ok(_) => { info!("Report saved") }
-        Err(error) => { error!("Cannot save report: {}", error) }
-    }
     match args.local_mode {
-        true => {}
+        true => {
+            pretty_report(&evaluated_iocs, &iocs, &all_results);
+            let report_response = file_ioc_service.report_results(upload_request.clone());
+            match report_response {
+                Ok(_) => { info!("Report saved") }
+                Err(error) => { error!("Cannot save report: {}", error) }
+            }
+        }
         false => {
             let report_response = http_ioc_service.report_results(upload_request);
             match report_response {
                 Ok(_) => { info!("Report saved") }
                 Err(error) => { error!("Cannot save report: {}", error) }
             }
+        }
+    }
+}
+
+fn pretty_report(
+    evaluated_iocs: &[IocId],
+    all_iocs: &[Ioc],
+    results: &[IocEntrySearchResult],
+) {
+    let pretty_reports: Vec<PrettyReport> = evaluated_iocs
+        .iter()
+        .filter_map(|ioc_id| {
+            let report: Vec<String> = results
+                .iter()
+                .filter(|iesr| iesr.ioc_id == ioc_id.clone())
+                .map(|it| {
+                    it.description.clone()
+                }).collect();
+            if report.is_empty() {
+                None
+            } else {
+                let ioc_mame = all_iocs
+                    .iter()
+                    .find(|it| it.id == ioc_id.clone())
+                    .map(|it| it.name.clone())
+                    .unwrap_or(None)
+                    .unwrap_or("UNKNOWN".to_string());
+
+                Some(
+                    PrettyReport {
+                        ioc_id: ioc_id.clone(),
+                        name: ioc_mame,
+                        search_reports: report,
+                    }
+                )
+            }
+        }).collect();
+    let pretty_report_wrapper = PrettyReportList { found_iocs: pretty_reports };
+    let json = serde_json::to_string_pretty(&pretty_report_wrapper);
+    match json {
+        Ok(json) => {
+            let mut report_file = std::fs::File::create(format!("PrettyReport-{}.json", Local::now().format("_%Y-%m-%d_%H-%M-%S")));
+            match report_file.as_mut() {
+                Ok(report_file) => {
+                    let res = report_file.write_all(json.as_ref());
+                    match res {
+                        Ok(_) => {}
+                        Err(err) => {
+                            error!("{}", err);
+                        }
+                    }
+                }
+                Err(err) => {
+                    error!("{}", err);
+                }
+            }
+        }
+        Err(err) => {
+            error!("{}", err);
         }
     }
 }

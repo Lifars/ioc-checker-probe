@@ -77,13 +77,16 @@ fn check_item(
         Some(regex) => regex.is_match(address_name),
     };
     if matches {
-        info!("Connection search: Found connection {} for IOC {}",
+        let message =
+            format!("Connection search: Found connection {} for IOC {}",
               address_name.clone(),
               sp.conn_param.ioc_id
         );
+        info!("{}", message);
         result.push(IocEntrySearchResult {
             ioc_id: sp.conn_param.ioc_id,
             ioc_entry_id: sp.conn_param.ioc_entry_id,
+            description: message
         });
     }
 }

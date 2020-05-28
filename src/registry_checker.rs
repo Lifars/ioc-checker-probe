@@ -47,7 +47,7 @@ pub fn check_registry(search_parameters: Vec<RegistryParameters>, deep_search_en
                 &registry,
             ),
             Err(err) => {
-                error!("Registry search: Cannot open registry {} for IOC id {}. Original error: {}",
+                info!("Registry search: Cannot open registry {} for IOC id {}. Original reason {}",
                        search_parameter.key,
                        search_parameter.ioc_id,
                        err);
@@ -63,8 +63,10 @@ pub fn check_registry(search_parameters: Vec<RegistryParameters>, deep_search_en
 
     let found_ioc_entries = results.iter()
         .map(|ok_res| ok_res.ioc_entry_id).collect::<HashSet<IocEntryId>>();
-
-    let deep_results = if deep_search_enabled {
+    let regex_search_request_is_present = search_parameters
+        .iter()
+        .any(|it| it.search_type == SearchType::Regex);
+    let deep_results = if deep_search_enabled && regex_search_request_is_present {
         info!("Registry search: Found only {} IOCs out of {} search parameters, starting deep search.", results.len(), search_parameters.len());
         let remaining_search_parameters: Vec<RegistryParameters> = search_parameters
             .into_iter()
@@ -225,28 +227,31 @@ fn check_by_value(search_parameter: &RegistryParameters, reg_entry: &winreg::Reg
 
     return match &search_parameter.value {
         None => {
-            info!("Registry search: Found reg key {}\\{} for IOC {}",
+            let message = format!("Registry search: Found reg key {}\\{} for IOC {}",
                   search_parameter.key,
                   search_parameter.value_name,
                   search_parameter.ioc_id
             );
+            info!("{}", message);
             Some(IocEntrySearchResult {
                 ioc_id: search_parameter.ioc_id,
                 ioc_entry_id: search_parameter.ioc_entry_id,
-
+                description: message
             })
         }
         Some(search_value) => {
             if search_value == &reg_value {
-                info!("Registry search: Found reg key {}\\{} = {} for IOC {}",
+                let message = format!("Registry search: Found reg key {}\\{} = {} for IOC {}",
                       search_parameter.key,
                       search_parameter.value_name,
                       search_value,
                       search_parameter.ioc_id
                 );
+                info!("{}", message);
                 Some(IocEntrySearchResult {
                     ioc_id: search_parameter.ioc_id,
                     ioc_entry_id: search_parameter.ioc_entry_id,
+                    description: message
                 })
             } else {
                 None

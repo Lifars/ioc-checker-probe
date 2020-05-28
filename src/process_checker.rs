@@ -72,10 +72,16 @@ pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<IocEntr
                             Some(regex) => regex.is_match(&proc.name()),
                         };
                         if matches {
-                            info!("Process search: Found process {} for IOC {}", searched_name, sp.proc_param.ioc_id);
+                            let message = format!(
+                                "Process search: Found process {} for IOC {}",
+                                searched_name,
+                                sp.proc_param.ioc_id
+                            );
+                            info!("{}", message);
                             result.push(IocEntrySearchResult {
                                 ioc_id: sp.proc_param.ioc_id,
                                 ioc_entry_id: sp.proc_param.ioc_entry_id,
+                                description: message,
                             });
                         }
                     }
@@ -91,16 +97,21 @@ pub fn check_processes(search_parameters: Vec<ProcessParameters>) -> Vec<IocEntr
                             match &sp.proc_param.name {
                                 None => {}
                                 Some(process_name) =>
-                                    info!("Process search: Found process {} with executable hash {} for IOC {}",
-                                          process_name,
-                                          &executable_hash.value,
-                                          sp.proc_param.ioc_id
-                                    ),
+                                    if executable_hash.value.to_ascii_lowercase() == hash.value.to_ascii_lowercase() {
+                                        let message =
+                                            format!("Process search: Found process {} with executable hash {} for IOC {}",
+                                                    process_name,
+                                                    &executable_hash.value,
+                                                    sp.proc_param.ioc_id
+                                            );
+                                        info!("{}", message);
+                                        result.push(IocEntrySearchResult {
+                                            ioc_id: sp.proc_param.ioc_id,
+                                            ioc_entry_id: sp.proc_param.ioc_entry_id,
+                                            description: message,
+                                        })
+                                    }
                             };
-                            result.push(IocEntrySearchResult {
-                                ioc_id: sp.proc_param.ioc_id,
-                                ioc_entry_id: sp.proc_param.ioc_entry_id,
-                            })
                         }
                         Err(err) => { error!("{}", err); }
                     }

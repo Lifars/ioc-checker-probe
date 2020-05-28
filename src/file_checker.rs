@@ -48,9 +48,10 @@ pub fn check_files(search_parameters: Vec<FileParameters>, deep_search_enabled: 
                 _ => false
             }).filter(|search_parameter| !search_parameter.file_path_or_name.clone().unwrap_or("".to_string()).is_empty());
     let ok_results = search_by_exact.filter_map(|search_parameter| {
+        let path = search_parameter.file_path_or_name.as_deref().map(|it| Path::new(it));
         check_file_by_hash(
             &search_parameter.hash,
-            Path::new(search_parameter.file_path_or_name.clone().unwrap_or("".to_string()).as_str()),
+            path,
             search_parameter.ioc_id,
             search_parameter.ioc_entry_id,
         )
@@ -122,20 +123,26 @@ fn deep_search(path: &Path, search_parameters: &[FileParameters]) -> Vec<IocEntr
 
 
 fn check_file_by_name(search_parameter: &FileParameters, file_entry: &DirEntry) -> Option<IocEntrySearchResult> {
-    let empty_str = "".to_string();
-    let searched_path = Path::new(search_parameter.file_path_or_name.as_ref().unwrap_or(&empty_str).as_str());
+    let searched_path = search_parameter.file_path_or_name.as_deref().map(|it| Path::new(it));
     let file_entry_path = file_entry.path();
-    debug!("File search: Checking file paths {} and {} by exact match", searched_path.display(), file_entry_path.display());
+    match searched_path {
+        None => {
+            debug!("File search: Checking file path {} by exact match", file_entry_path.display());
+        }
+        Some(searched_path) => {
+            debug!("File search: Checking file paths {} and {} by exact match", searched_path.display(), file_entry_path.display());
+        }
+    }
 
-    if searched_path.as_os_str().is_empty() {
+    if searched_path.is_none() {
         return check_file_by_hash(
             &search_parameter.hash,
-            file_entry_path,
+            Some(file_entry_path),
             search_parameter.ioc_id,
             search_parameter.ioc_entry_id,
         );
     }
-
+    let searched_path = searched_path.unwrap();
     let searched_path_parent = searched_path.parent().unwrap_or(Path::new(""));
     let searched_filename = searched_path.file_name().unwrap_or_default();
     let file_entry_parent = file_entry_path.parent().unwrap_or(Path::new(""));
@@ -148,7 +155,7 @@ fn check_file_by_name(search_parameter: &FileParameters, file_entry: &DirEntry) 
     }
     check_file_by_hash(
         &search_parameter.hash,
-        file_entry_path,
+        Some(file_entry_path),
         search_parameter.ioc_id,
         search_parameter.ioc_entry_id,
     )
@@ -179,7 +186,7 @@ fn check_file_by_regex(
     if !file_name_matched && !file_path_empty && !file_name_matched { None } else {
         check_file_by_hash(
             &search_parameter.hash,
-            file_entry.path(),
+            Some(file_entry.path()),
             search_parameter.ioc_id,
             search_parameter.ioc_entry_id,
         )
@@ -188,27 +195,39 @@ fn check_file_by_regex(
 
 fn check_file_by_hash(
     searched_hash: &Option<Hashed>,
-    file_path: &Path,
+    file_path: Option<&Path>,
     ioc_id: IocId,
     ioc_entry_id: IocEntryId,
 ) -> Option<IocEntrySearchResult> {
+    if file_path.is_some() && !file_path.unwrap().exists() {
+        return None;
+    }
+    let file_path = file_path.unwrap_or(Path::new(""));
     debug!("File search: Checking if file {} is IOC by hash", file_path.display());
     match searched_hash {
         None => {
-            debug!("File search: No hash for file {} specified, considering it as IOC", file_path.display());
+            let message =
+                format!(
+                    "File search: No hash for file {} specified, considering it as IOC",
+                    file_path.display()
+                );
+            debug!("{}", message);
             Some(
                 IocEntrySearchResult {
                     ioc_id,
                     ioc_entry_id,
+                    description: message,
                 }
             )
         }
         Some(searched_hash) => {
-            debug!("File search: Compare specified {} hash of {} with file {}",
-                   searched_hash.algorithm,
-                   searched_hash.value,
-                   file_path.display()
-            );
+            let message =
+                format!("File search: Compare specified {} hash of {} with file {}",
+                        searched_hash.algorithm,
+                        searched_hash.value,
+                        file_path.display()
+                );
+            debug!("{}", message);
             let file_hash = Hasher::new(searched_hash.algorithm.clone()).hash_file_by_path(file_path);
             match file_hash {
                 Ok(file_hash) => {
@@ -216,6 +235,7 @@ fn check_file_by_hash(
                         Some(IocEntrySearchResult {
                             ioc_id,
                             ioc_entry_id,
+                            description: message,
                         })
                     } else {
                         debug!("File search: Hashes does not match. Expected {} != {} found", searched_hash.value, file_hash.value);

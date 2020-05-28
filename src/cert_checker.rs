@@ -41,13 +41,16 @@ pub fn check_certs(search_parameters: Vec<CertificateParameters>) -> Vec<IocEntr
         search_parameters.iter()
             .filter(|sp| cert_subject.contains(&sp.name))
             .map(|sp| {
-                info!("Certificate search: Found certificate {} for IOC {}",
-                    sp.name,
-                    sp.ioc_id
-                );
+                let message =
+                    format!("Certificate search: Found certificate {} for IOC {}",
+                            sp.name,
+                            sp.ioc_id
+                    );
+                info!("{}", message);
                 IocEntrySearchResult {
                     ioc_id: sp.ioc_id,
                     ioc_entry_id: sp.ioc_entry_id,
+                    description: message,
                 }
             }).collect::<Vec<IocEntrySearchResult>>()
     }).collect()

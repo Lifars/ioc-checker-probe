@@ -156,6 +156,20 @@ pub struct ReportUploadRequest {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(rename_all = "camelCase")]
+pub struct PrettyReport {
+    pub ioc_id: IocId,
+    pub name: String,
+    pub search_reports: Vec<String>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct PrettyReportList {
+    pub found_iocs: Vec<PrettyReport>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct IocSearchResult {
     pub ioc_id: IocId,
     pub data: Vec<String>,

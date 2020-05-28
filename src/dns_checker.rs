@@ -33,13 +33,15 @@ pub fn check_dns(search_parameters: Vec<DnsParameters>) -> Vec<IocEntrySearchRes
     search_parameters.iter()
         .filter(|search_param| dns_names.iter().any(|dns| *dns == search_param.name.as_str()))
         .map(|search_param| {
-            info!("DNS search: Found DNS {} for IOC {}",
+            let message = format!("DNS search: Found DNS {} for IOC {}",
                   search_param.name.clone(),
                   search_param.ioc_id
             );
+            info!("{}", message);
             IocEntrySearchResult {
                 ioc_id: search_param.ioc_id,
                 ioc_entry_id: search_param.ioc_entry_id,
+                description: message
             }
         }).collect()
 }

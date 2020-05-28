@@ -69,8 +69,8 @@ fn write_default_if_not_exists() -> Result<(), std::io::Error> {
                     let mut writer = LineWriter::new(new_properties_file);
                     writer.write_all(b"server = \"http://localhost:8080/\"\n")?;
                     writer.write_all(b"auth_probe_name = \"TESTING\"\n")?;
-                    writer.write_all(b"auth_key = \"TESTING\"")?;
-                    writer.write_all(b"deep_search = false")?;
+                    writer.write_all(b"auth_key = \"TESTING\"\n")?;
+                    writer.write_all(b"deep_search = false\n")?;
                     writer.write_all(b"max_iocs = 5000")?;
                     let write_result = writer.flush();
                     if write_result.is_err() {
