@@ -34,6 +34,7 @@ sysinfo = "0.11.1"
 rustls-native-certs = "0.2.1"
 rustls = "0.16"
 dirs = "2.0"
+uuid = { version = "0.8", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["winuser", "std", "handleapi", "processthreadsapi", "fileapi", "libloaderapi", "memoryapi", "winspool", "securitybaseapi"] }

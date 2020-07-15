@@ -25,7 +25,8 @@ use crate::process_checker::ProcessParameters;
 use crate::cert_checker::CertificateParameters;
 use crate::logo::print_logo;
 use chrono::Local;
-use std::io::{Write};
+use std::io::Write;
+use uuid::Uuid;
 
 #[cfg(windows)]
 mod windows_bindings;
@@ -51,24 +52,26 @@ mod dir_resolver;
 mod logo;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    setup_logger();
+    let args = parsed_args();
+    setup_logger(&args);
     print_logo();
     let program_properties = Properties::new();
     info!("Loaded properties");
     debug!("IOC server is at {}", program_properties.server);
-    run_checker(&program_properties);
+    run_checker(&program_properties, &args);
 
     Ok(())
 }
 
 
-fn setup_logger() {
-    CombinedLogger::init(
-        vec![
-            TermLogger::new(LevelFilter::Debug, Config::default(), TerminalMode::Mixed).unwrap(),
-            WriteLogger::new(LevelFilter::Debug, Config::default(), File::create("ioc.log").unwrap()),
-        ]
-    ).unwrap();
+fn setup_logger(args: &ParsedArgs) {
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![
+        WriteLogger::new(LevelFilter::Debug, Config::default(), File::create(format!("ioc-{}.log", Uuid::new_v4().as_u128())).unwrap()),
+    ];
+    if !args.raw_console_mode {
+        loggers.push(TermLogger::new(LevelFilter::Debug, Config::default(), TerminalMode::Mixed).unwrap())
+    }
+    CombinedLogger::init(loggers).unwrap();
 }
 
 fn walk_iocs(
@@ -232,8 +235,7 @@ fn walk_ioc_entries(
 }
 
 
-fn run_checker(program_properties: &Properties) {
-    let args = parsed_args();
+fn run_checker(program_properties: &Properties, args: &ParsedArgs) {
     let file_ioc_service = FileIocService::new(args.ioc_definitions.to_vec());
     let http_ioc_service = HttpIocService::new(
         program_properties.server.clone(),
@@ -342,22 +344,21 @@ fn run_checker(program_properties: &Properties) {
           upload_request.found_iocs.len(),
           iocs.len()
     );
-    match args.local_mode {
-        true => {
-            pretty_report(&evaluated_iocs, &iocs, &all_results);
-            let report_response = file_ioc_service.report_results(upload_request.clone());
-            match report_response {
-                Ok(_) => { info!("Report saved") }
-                Err(error) => { error!("Cannot save report: {}", error) }
-            }
+    if args.local_mode && !args.raw_console_mode {
+        pretty_report(&evaluated_iocs, &iocs, &all_results);
+        let report_response = file_ioc_service.report_results(upload_request.clone());
+        match report_response {
+            Ok(_) => { info!("Report saved") }
+            Err(error) => { error!("Cannot save report: {}", error) }
         }
-        false => {
-            let report_response = http_ioc_service.report_results(upload_request);
-            match report_response {
-                Ok(_) => { info!("Report saved") }
-                Err(error) => { error!("Cannot save report: {}", error) }
-            }
+    } else if !args.raw_console_mode {
+        let report_response = http_ioc_service.report_results(upload_request);
+        match report_response {
+            Ok(_) => { info!("Report saved") }
+            Err(error) => { error!("Cannot save report: {}", error) }
         }
+    }else {
+        println!("{:?}", upload_request.found_iocs);
     }
 }
 

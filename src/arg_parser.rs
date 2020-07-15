@@ -2,18 +2,19 @@
 pub struct ParsedArgs {
     pub ioc_definitions: Vec<String>,
     pub local_mode: bool,
+    pub raw_console_mode: bool,
     pub cert_check: bool,
     pub conn_check: bool,
     pub dns_check: bool,
     pub file_check: bool,
     pub mutex_check: bool,
     pub process_check: bool,
-    pub registry_check: bool,
-
+    pub registry_check: bool
 }
 
 const LOCAL_MODE_FLAG: &str = "--local";
 const LOCAL_MODE_FLAG_S: &str = "-l";
+const RAW_CONSOLE_MODE_FLAG: &str = "--raw";
 const DIS_CERT_FLAG: &str = "--dis-cert";
 const DIS_CONN_FLAG: &str = "--dis-conn";
 const DIS_DNS_FLAG: &str = "--dis-dns";
@@ -29,13 +30,14 @@ pub fn parsed_args() -> ParsedArgs {
     let mut local_mode = false;
 
 
-    let mut cert_check= true;
-    let mut conn_check= true;
-    let mut dns_check= true;
-    let mut file_check= true;
-    let mut mutex_check= true;
-    let mut process_check= true;
-    let mut registry_check= true;
+    let mut cert_check = true;
+    let mut conn_check = true;
+    let mut dns_check = true;
+    let mut file_check = true;
+    let mut mutex_check = true;
+    let mut process_check = true;
+    let mut registry_check = true;
+    let mut raw_console_mode = false;
 
     for arg in args {
         match arg.as_str() {
@@ -48,13 +50,17 @@ pub fn parsed_args() -> ParsedArgs {
             DIS_MUTEX_FLAG => { mutex_check = false }
             DIS_PROCESS_FLAG => { process_check = false }
             DIS_REGISTRY_FLAG => { registry_check = false }
-            _ => ioc_definitions.push(arg.clone())
+            RAW_CONSOLE_MODE_FLAG => { raw_console_mode = true }
+            _ => {
+                ioc_definitions.push(arg.clone())
+            }
         }
     }
 
     ParsedArgs {
         ioc_definitions,
         local_mode,
+        raw_console_mode,
         cert_check,
         conn_check,
         dns_check,
