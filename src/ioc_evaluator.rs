@@ -76,7 +76,6 @@ impl IocEvaluator {
         &self,
         ioc_entry: &IocEntryItem,
     ) -> bool {
-//        debug!("Evaluating IOC entry {}", ioc_entry.ioc_entry_id);
         let evaluated_self = self.evaluate_without_offspring(ioc_entry);
         match evaluated_self {
             false => match ioc_entry.eval_policy {
@@ -128,13 +127,12 @@ impl IocEvaluator {
                 if children.is_empty() {
                     empty_children_evaluation_result
                 } else {
+                    let found_children = self.evaluate_non_empty_vector(children);
                     match parent_ioc_entry.child_eval {
                         EvaluationPolicy::All => {
-                            let found_children = self.evaluate_non_empty_vector(children);
                             found_children == children.len()
                         }
                         EvaluationPolicy::One => {
-                            let found_children = self.evaluate_non_empty_vector(children);
                             found_children > 0
                         }
                     }

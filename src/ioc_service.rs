@@ -113,7 +113,7 @@ impl HttpIocService {
 
 fn http_client() -> Result<reqwest::blocking::Client, IocServiceError> {
     reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(true) // NONO: Need to be removed after correct cert is bought
+        // .danger_accept_invalid_certs(true) // NONO: Need to be removed after correct cert is bought
         .build()
         .map_err(|err| IocServiceError {
             kind: "HTTP Error".to_string(),
@@ -145,7 +145,6 @@ impl IocService for HttpIocService {
             if response.iocs.is_empty() {
                 break;
             } else {
-
                 results.append(&mut response.iocs)
             }
             info!("Loaded {} out of {} IOCs, limit {}",
