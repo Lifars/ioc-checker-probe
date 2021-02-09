@@ -6,8 +6,7 @@ use sha1::Sha1;
 use sha2::Sha256;
 use std::str::Utf8Error;
 use std::path::Path;
-use std::fmt::Display;
-use serde::export::Formatter;
+use std::fmt::{Display, Formatter};
 use serde::export::fmt::Error;
 use crate::data::{HashType, Hashed};
 
