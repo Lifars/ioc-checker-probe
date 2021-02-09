@@ -1,6 +1,6 @@
 use crate::data::{GetIocResponse, ReportUploadRequest, Ioc};
 use std::fmt::Display;
-use serde::export::Formatter;
+use std::fmt::Formatter;
 use std::fmt;
 use std::path::Path;
 use std::fs::File;
